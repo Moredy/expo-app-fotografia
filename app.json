@@ -1,22 +1,23 @@
 {
   "expo": {
-    "name": "app-fotografia",
-    "slug": "app-fotografia",
+    "name": "Vitória Lima Fotografia",
+    "slug": "vitoria-lima-fotografia",
     "version": "1.0.0",
+    "scheme": "vitoria-lima-fotografia",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#5B3A8F"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#5B3A8F",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
