@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,7 @@ type EventoDetalhesScreenProps = NativeStackScreenProps<RootStackParamList, 'Eve
 interface FotoLocal {
   id: string;
   url: { uri: string };
+  unitPrice: number;
   comprada: boolean;
   selecionada: boolean;
 }
@@ -41,8 +42,10 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
   const [fotos, setFotos] = useState<FotoLocal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [addingToCart, setAddingToCart] = useState<boolean>(false);
+  const addLockRef = useRef(false);
 
-  const fetchFotos = useCallback(async () => {
+  const fetchFotos = async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
@@ -54,6 +57,7 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
         data.map((p) => ({
           id: p.id,
           url: { uri: p.url },
+          unitPrice: p.unitPrice,
           comprada: p.isPurchased ?? false,
           selecionada: false,
         })),
@@ -63,41 +67,77 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
     } finally {
       setLoading(false);
     }
-  }, [evento.id, getToken]);
+  };
 
-  useEffect(() => { fetchFotos(); }, [fetchFotos]);
+  useEffect(() => {
+    fetchFotos();
+    // O getToken do Clerk pode mudar de referência entre renders e causar loop no efeito.
+    // Mantemos o carregamento vinculado ao evento atual.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evento.id]);
 
   const toggleSelecao = (id: string): void => {
-    setFotos(
-      fotos.map((foto) =>
+    setFotos((prevFotos) =>
+      prevFotos.map((foto) =>
         foto.id === id ? { ...foto, selecionada: !foto.selecionada } : foto
       )
     );
   };
 
-  const handleAddToCart = (): void => {
+  const handleAddToCart = async (): Promise<void> => {
+    if (addLockRef.current || addingToCart) return;
+    addLockRef.current = true;
+
     const fotosSelecionadas = fotos.filter((f) => f.selecionada);
     let adicionadas = 0;
     let jaNoCarrinho = 0;
+    let falhas = 0;
+    let primeiraMensagemErro = '';
+    const fotosComFalha: string[] = [];
 
-    fotosSelecionadas.forEach((foto) => {
-      const sucesso = addToCart(foto, evento);
-      if (sucesso) {
-        adicionadas++;
-      } else {
-        jaNoCarrinho++;
+    setAddingToCart(true);
+
+    try {
+      for (const foto of fotosSelecionadas) {
+        try {
+          const sucesso = await addToCart(foto, evento);
+          if (sucesso) {
+            adicionadas++;
+          } else {
+            jaNoCarrinho++;
+          }
+        } catch (err: unknown) {
+          falhas++;
+          fotosComFalha.push(foto.id);
+          const message = err instanceof Error && err.message.trim().length > 0
+            ? err.message
+            : String(err || '').trim();
+          if (!primeiraMensagemErro && message.length > 0) {
+            primeiraMensagemErro = message;
+          }
+        }
       }
-    });
-
-    // Limpar seleções
-    setFotos(fotos.map((f) => ({ ...f, selecionada: false })));
-    setModoSelecao(false);
+    } finally {
+      setAddingToCart(false);
+      addLockRef.current = false;
+    }
 
     if (adicionadas > 0) {
+      // Limpar seleções ao menos quando houver sucesso parcial/total
+      setFotos((prevFotos) => prevFotos.map((f) => ({ ...f, selecionada: false })));
+      setModoSelecao(false);
+
+      const detalhes = [
+        jaNoCarrinho > 0 ? `${jaNoCarrinho} ja estava${jaNoCarrinho > 1 ? 'm' : ''} no carrinho.` : '',
+        falhas > 0
+          ? `${falhas} falhou${falhas > 1 ? 'ram' : ''}.${primeiraMensagemErro ? `\nMotivo: ${primeiraMensagemErro}` : ''}${fotosComFalha.length > 0 ? `\nFotos: ${fotosComFalha.join(', ')}` : ''}`
+          : '',
+      ].filter(Boolean).join('\n\n');
+
       Alert.alert(
         'Sucesso! 🎉',
         `${adicionadas} foto${adicionadas > 1 ? 's' : ''} adicionada${adicionadas > 1 ? 's' : ''} ao carrinho!${
-          jaNoCarrinho > 0 ? `\n\n${jaNoCarrinho} já estava${jaNoCarrinho > 1 ? 'm' : ''} no carrinho.` : ''
+          detalhes ? `\n\n${detalhes}` : ''
         }`,
         [
           { text: 'Continuar comprando', style: 'cancel' },
@@ -107,15 +147,23 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
           },
         ]
       );
-    } else if (jaNoCarrinho > 0) {
+    } else if (jaNoCarrinho > 0 && falhas === 0) {
       Alert.alert(
         'Aviso',
         'Todas as fotos selecionadas já estão no carrinho.'
+      );
+    } else {
+      Alert.alert(
+        'Erro',
+        primeiraMensagemErro || 'Nao foi possivel adicionar ao carrinho.'
       );
     }
   };
 
   const fotosSelecionadas = fotos.filter((f) => f.selecionada).length;
+  const totalSelecionado = fotos
+    .filter((f) => f.selecionada)
+    .reduce((acc, foto) => acc + foto.unitPrice, 0);
   const cartCount = getCartCount();
 
   return (
@@ -164,10 +212,12 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
           <TouchableOpacity
             style={styles.selectButton}
             onPress={() => {
-              setModoSelecao(!modoSelecao);
-              if (modoSelecao) {
-                setFotos(fotos.map((f) => ({ ...f, selecionada: false })));
-              }
+              setModoSelecao((prevModoSelecao) => {
+                if (prevModoSelecao) {
+                  setFotos((prevFotos) => prevFotos.map((f) => ({ ...f, selecionada: false })));
+                }
+                return !prevModoSelecao;
+              });
             }}
           >
             <Ionicons
@@ -202,7 +252,8 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
               <TouchableOpacity
                 key={foto.id}
                 style={styles.photoContainer}
-                onPress={() => modoSelecao && toggleSelecao(foto.id)}
+                onPress={() => !addingToCart && modoSelecao && toggleSelecao(foto.id)}
+                disabled={addingToCart}
               >
                 <Image source={foto.url} style={styles.photo} />
                 {foto.comprada && (
@@ -243,15 +294,16 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
               {fotosSelecionadas} foto{fotosSelecionadas > 1 ? 's' : ''} selecionada{fotosSelecionadas > 1 ? 's' : ''}
             </Text>
             <Text style={styles.selectedPrice}>
-              R$ {(fotosSelecionadas * 15).toFixed(2).replace('.', ',')}
+              R$ {totalSelecionado.toFixed(2).replace('.', ',')}
             </Text>
           </View>
           <TouchableOpacity
             style={styles.addToCartButton}
-            onPress={handleAddToCart}
+            onPress={() => { void handleAddToCart(); }}
+            disabled={addingToCart}
           >
             <Ionicons name="cart" size={20} color="#000" />
-            <Text style={styles.addToCartText}>Adicionar</Text>
+            <Text style={styles.addToCartText}>{addingToCart ? 'Adicionando...' : 'Adicionar'}</Text>
           </TouchableOpacity>
         </View>
       )}

@@ -7,6 +7,7 @@ import {
   ScrollView,
   Image,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,13 +24,15 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
   const { cartItems, removeFromCart, clearCart, getCartTotal, getCartCount } = useCart();
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [removingPhotoIds, setRemovingPhotoIds] = useState<string[]>([]);
+  const [isClearingCart, setIsClearingCart] = useState(false);
 
   const photoIds = cartItems.map((item) => item.foto.id);
 
   const { state: checkoutState, error: checkoutError, startCheckout } = useOrderCheckout({
     photoIds,
     onSuccess: () => {
-      clearCart();
+      void clearCart();
       navigation.navigate('CheckoutSuccess', { type: 'order' });
     },
     onCancel: () => {
@@ -38,6 +41,7 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
   });
 
   const isProcessing = checkoutState === 'loading';
+  const isMutatingCart = isClearingCart || removingPhotoIds.length > 0;
 
   // Exibe toast quando houver erro no checkout
   React.useEffect(() => {
@@ -46,6 +50,40 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
       setToastVisible(true);
     }
   }, [checkoutState, checkoutError]);
+
+  const handleRemoveItemConfirm = async (fotoId: string): Promise<void> => {
+    if (removingPhotoIds.includes(fotoId)) return;
+
+    setRemovingPhotoIds((prev) => [...prev, fotoId]);
+    try {
+      await removeFromCart(fotoId);
+    } catch (err: unknown) {
+      const message = err instanceof Error && err.message.trim().length > 0
+        ? err.message
+        : 'Nao foi possivel remover a foto do carrinho.';
+      setToastMessage(message);
+      setToastVisible(true);
+    } finally {
+      setRemovingPhotoIds((prev) => prev.filter((id) => id !== fotoId));
+    }
+  };
+
+  const handleClearCartConfirm = async (): Promise<void> => {
+    if (isClearingCart) return;
+
+    setIsClearingCart(true);
+    try {
+      await clearCart();
+    } catch (err: unknown) {
+      const message = err instanceof Error && err.message.trim().length > 0
+        ? err.message
+        : 'Nao foi possivel limpar o carrinho.';
+      setToastMessage(message);
+      setToastVisible(true);
+    } finally {
+      setIsClearingCart(false);
+    }
+  };
 
   const handleRemoveItem = (fotoId: string): void => {
     Alert.alert(
@@ -56,7 +94,7 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
         {
           text: 'Remover',
           style: 'destructive',
-          onPress: () => removeFromCart(fotoId),
+          onPress: () => { void handleRemoveItemConfirm(fotoId); },
         },
       ]
     );
@@ -91,6 +129,7 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
       <View style={styles.header}>
         <Text style={styles.title}>Carrinho</Text>
         <TouchableOpacity
+          disabled={isClearingCart}
           onPress={() => {
             Alert.alert(
               'Limpar Carrinho',
@@ -100,33 +139,41 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
                 {
                   text: 'Limpar',
                   style: 'destructive',
-                  onPress: clearCart,
+                  onPress: () => { void handleClearCartConfirm(); },
                 },
               ]
             );
           }}
         >
-          <Text style={styles.clearButton}>Limpar</Text>
+          <Text style={[styles.clearButton, isClearingCart && styles.clearButtonDisabled]}>
+            {isClearingCart ? 'Limpando...' : 'Limpar'}
+          </Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.itemsContainer}>
-          {cartItems.map((item, index) => (
-            <View key={index} style={styles.cartItem}>
+          {cartItems.map((item) => (
+            <View key={item.foto.id} style={styles.cartItem}>
               <Image source={item.foto.url} style={styles.itemImage} />
               <View style={styles.itemInfo}>
                 <Text style={styles.itemEvento} numberOfLines={1}>
                   {item.evento.titulo}
                 </Text>
-                <Text style={styles.itemPrice}>R$ 15,00</Text>
+                <Text style={styles.itemPrice}>R$ {item.unitPrice.toFixed(2).replace('.', ',')}</Text>
               </View>
+              {removingPhotoIds.includes(item.foto.id) ? (
+                <View style={styles.removeButton}>
+                  <ActivityIndicator size="small" color="#FF3B30" />
+                </View>
+              ) : (
               <TouchableOpacity
                 style={styles.removeButton}
                 onPress={() => handleRemoveItem(item.foto.id)}
               >
                 <Ionicons name="trash-outline" size={22} color="#FF3B30" />
               </TouchableOpacity>
+              )}
             </View>
           ))}
         </View>
@@ -164,9 +211,9 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
         <TouchableOpacity
           style={[styles.checkoutButton, isProcessing && styles.checkoutButtonDisabled]}
           onPress={startCheckout}
-          disabled={isProcessing}
+          disabled={isProcessing || isMutatingCart}
         >
-          {isProcessing ? (
+          {isProcessing || isMutatingCart ? (
             <Text style={styles.checkoutButtonText}>Aguarde...</Text>
           ) : (
             <>
@@ -209,6 +256,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#FF3B30',
     fontWeight: '600',
+  },
+  clearButtonDisabled: {
+    opacity: 0.6,
   },
   emptyContainer: {
     flex: 1,

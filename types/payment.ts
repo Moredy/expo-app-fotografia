@@ -76,6 +76,7 @@ export interface ApiPhoto {
   id: string;
   url: string;
   eventId: string;
+  unitPrice: number;
   isPurchased?: boolean;
   createdAt: string;
 }

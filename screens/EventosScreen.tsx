@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -52,7 +52,7 @@ export default function EventosScreen({ navigation }: EventosScreenProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchEventos = useCallback(async (isRefresh = false) => {
+  const fetchEventos = async (isRefresh = false): Promise<void> => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
@@ -65,9 +65,14 @@ export default function EventosScreen({ navigation }: EventosScreenProps) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [getToken]);
+  };
 
-  useEffect(() => { fetchEventos(); }, [fetchEventos]);
+  useEffect(() => {
+    fetchEventos();
+    // O getToken do Clerk pode mudar de referência e reexecutar este efeito em loop.
+    // Mantemos a primeira carga apenas no mount da tela.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (

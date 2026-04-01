@@ -4,8 +4,20 @@ const BASE_URL =
   process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
 
 const TIMEOUT_MS = 15_000;
+const TOKEN_TIMEOUT_MS = 8_000;
 
 type GetToken = () => Promise<string | null>;
+
+interface RawApiPhoto {
+  id: string;
+  eventId: string;
+  priceIndividual?: string | number | null;
+  url?: string | null;
+  thumbnailUrl?: string | null;
+  originalUrl?: string | null;
+  isPurchased?: boolean;
+  createdAt: string;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -20,7 +32,10 @@ async function fetchWithTimeout(url: string, options: RequestInit): Promise<Resp
 }
 
 async function authHeaders(getToken: GetToken): Promise<Record<string, string>> {
-  const token = await getToken();
+  const token = await Promise.race([
+    getToken(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), TOKEN_TIMEOUT_MS)),
+  ]);
   if (!token) throw new Error('Sessão expirada. Faça login novamente.');
   return {
     'Content-Type': 'application/json',
@@ -38,6 +53,25 @@ async function handleResponse<T>(response: Response): Promise<T> {
     throw new Error(message);
   }
   return response.json() as Promise<T>;
+}
+
+function sanitizePhotoUrl(url?: string | null): string {
+  if (!url) return '';
+  const match = url.match(/https?%3A%2F%2F.+$/i) ?? url.match(/https?%3A\/\/.+$/i);
+  if (match) return decodeURIComponent(match[0]);
+  return url;
+}
+
+function normalizePhoto(photo: RawApiPhoto): ApiPhoto {
+  const parsedPrice = Number(photo.priceIndividual ?? 15);
+  return {
+    id: photo.id,
+    eventId: photo.eventId,
+    url: sanitizePhotoUrl(photo.thumbnailUrl ?? photo.url ?? photo.originalUrl),
+    unitPrice: Number.isFinite(parsedPrice) ? parsedPrice : 15,
+    isPurchased: photo.isPurchased ?? false,
+    createdAt: photo.createdAt,
+  };
 }
 
 // ─── Eventos ──────────────────────────────────────────────────────────────────
@@ -61,9 +95,23 @@ export async function getEventById(id: string, getToken: GetToken): Promise<ApiE
 // ─── Fotos do evento ──────────────────────────────────────────────────────────
 
 export async function getEventPhotos(eventId: string, getToken: GetToken): Promise<ApiPhoto[]> {
-  const response = await fetchWithTimeout(`${BASE_URL}/events/${eventId}/photos`, {
-    method: 'GET',
-    headers: await authHeaders(getToken),
-  });
-  return handleResponse<ApiPhoto[]>(response);
+  const headers = await authHeaders(getToken);
+  const byQueryResponse = await fetchWithTimeout(
+    `${BASE_URL}/photos?eventId=${encodeURIComponent(eventId)}`,
+    {
+      method: 'GET',
+      headers,
+    },
+  );
+
+  const response = byQueryResponse.status === 404
+    ? await fetchWithTimeout(`${BASE_URL}/events/${eventId}/photos`, {
+      method: 'GET',
+      headers,
+    })
+    : byQueryResponse;
+
+  const data = await handleResponse<RawApiPhoto[]>(response);
+
+  return data.map(normalizePhoto).filter((photo) => Boolean(photo.url));
 }
