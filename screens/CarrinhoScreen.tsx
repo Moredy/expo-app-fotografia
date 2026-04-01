@@ -11,8 +11,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useCart } from '../contexts/CartContext';
-import { useOrders } from '../contexts/OrderContext';
+import { useOrderCheckout } from '../hooks/useCheckout';
 import { CarrinhoScreenNavigationProp } from '../navigation/types';
+import Toast from '../components/Toast';
 
 interface CarrinhoScreenProps {
   navigation: CarrinhoScreenNavigationProp;
@@ -20,8 +21,31 @@ interface CarrinhoScreenProps {
 
 export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
   const { cartItems, removeFromCart, clearCart, getCartTotal, getCartCount } = useCart();
-  const { createOrder } = useOrders();
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  const photoIds = cartItems.map((item) => item.foto.id);
+
+  const { state: checkoutState, error: checkoutError, startCheckout } = useOrderCheckout({
+    photoIds,
+    onSuccess: () => {
+      clearCart();
+      navigation.navigate('CheckoutSuccess', { type: 'order' });
+    },
+    onCancel: () => {
+      navigation.navigate('CheckoutCancel');
+    },
+  });
+
+  const isProcessing = checkoutState === 'loading';
+
+  // Exibe toast quando houver erro no checkout
+  React.useEffect(() => {
+    if (checkoutState === 'error' && checkoutError) {
+      setToastMessage(checkoutError);
+      setToastVisible(true);
+    }
+  }, [checkoutState, checkoutError]);
 
   const handleRemoveItem = (fotoId: string): void => {
     Alert.alert(
@@ -33,38 +57,6 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
           text: 'Remover',
           style: 'destructive',
           onPress: () => removeFromCart(fotoId),
-        },
-      ]
-    );
-  };
-
-  const handleCheckout = (): void => {
-    Alert.alert(
-      'Finalizar Pedido',
-      `Total: R$ ${getCartTotal().toFixed(2).replace('.', ',')}\n\nConfirmar compra de ${getCartCount()} ${getCartCount() === 1 ? 'foto' : 'fotos'}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Confirmar',
-          onPress: () => {
-            setIsProcessing(true);
-            setTimeout(() => {
-              const order = createOrder(cartItems, getCartTotal());
-              clearCart();
-              setIsProcessing(false);
-              Alert.alert(
-                'Pedido Confirmado! 🎉',
-                `Seu pedido #${order.id} foi realizado com sucesso!\n\nAs fotos estarão disponíveis na sua galeria em breve.`,
-                [
-                  {
-                    text: 'Ver Pedidos',
-                    onPress: () => navigation.navigate('Pedidos'),
-                  },
-                  { text: 'Ok' },
-                ]
-              );
-            }, 1500);
-          },
         },
       ]
     );
@@ -171,11 +163,11 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
         </View>
         <TouchableOpacity
           style={[styles.checkoutButton, isProcessing && styles.checkoutButtonDisabled]}
-          onPress={handleCheckout}
+          onPress={startCheckout}
           disabled={isProcessing}
         >
           {isProcessing ? (
-            <Text style={styles.checkoutButtonText}>Processando...</Text>
+            <Text style={styles.checkoutButtonText}>Aguarde...</Text>
           ) : (
             <>
               <Text style={styles.checkoutButtonText}>Finalizar Pedido</Text>
@@ -184,6 +176,13 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
           )}
         </TouchableOpacity>
       </View>
+
+      <Toast
+        visible={toastVisible}
+        message={toastMessage}
+        type="error"
+        onHide={() => setToastVisible(false)}
+      />
     </SafeAreaView>
   );
 }

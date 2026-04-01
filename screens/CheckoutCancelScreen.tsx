@@ -1,0 +1,116 @@
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/types';
+
+interface Props {
+  navigation: NativeStackNavigationProp<RootStackParamList, 'CheckoutCancel'>;
+}
+
+export default function CheckoutCancelScreen({ navigation }: Props) {
+  function handleGoBack() {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    }
+  }
+
+  function handleGoHome() {
+    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <View style={styles.content}>
+        <View style={styles.iconWrapper}>
+          <Ionicons name="close-circle" size={96} color="#FF8A65" />
+        </View>
+
+        <Text style={styles.title}>Pagamento cancelado</Text>
+        <Text style={styles.subtitle}>
+          O pagamento não foi concluído. Nenhum valor foi cobrado.{'\n'}Você pode tentar novamente
+          quando quiser.
+        </Text>
+
+        <View style={styles.actions}>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleGoBack}>
+            <Ionicons name="arrow-back" size={20} color="#000" />
+            <Text style={styles.primaryButtonText}>Voltar e tentar novamente</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleGoHome}>
+            <Ionicons name="home-outline" size={20} color="#D4A574" />
+            <Text style={styles.secondaryButtonText}>Ir para início</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#5B3A8F',
+  },
+  content: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  iconWrapper: {
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#B8A0D4',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 40,
+    paddingHorizontal: 8,
+  },
+  actions: {
+    width: '100%',
+    gap: 12,
+  },
+  primaryButton: {
+    backgroundColor: '#D4A574',
+    paddingVertical: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  primaryButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  secondaryButton: {
+    borderWidth: 1.5,
+    borderColor: '#D4A574',
+    paddingVertical: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  secondaryButtonText: {
+    color: '#D4A574',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});

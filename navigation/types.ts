@@ -22,6 +22,10 @@ export type RootStackParamList = {
   };
   Galeria: undefined;
   Pedidos: undefined;
+  CheckoutSuccess: {
+    type: 'order' | 'subscription';
+  };
+  CheckoutCancel: undefined;
 } & TabParamList; // Permite navegação direta para as tabs também
 
 // Tipos compostos para navegação das telas do Tab
@@ -60,3 +64,7 @@ export type EventoDetalhesScreenNavigationProp = NativeStackNavigationProp<RootS
 export type GaleriaScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Galeria'>;
 
 export type PedidosScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Pedidos'>;
+
+export type CheckoutSuccessScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'CheckoutSuccess'>;
+
+export type CheckoutCancelScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'CheckoutCancel'>;

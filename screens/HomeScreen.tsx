@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
-import { eventos, fotosFavoritas } from '../data/mockData';
+import { Evento } from '../data/mockData';
+import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
+import { getEvents } from '../services/eventsService';
+import { ApiEvent } from '../types/payment';
 import { HomeScreenNavigationProp } from '../navigation/types';
 
 const { width } = Dimensions.get('window');
@@ -21,10 +24,42 @@ interface HomeScreenProps {
   navigation: HomeScreenNavigationProp;
 }
 
+// Corrige URLs que o backend constrói prefixando MinIO sobre uma URL externa
+function sanitizeCoverUrl(url: string | null): string | null {
+  if (!url) return null;
+  const match = url.match(/https?%3A%2F%2F.+$/i) ?? url.match(/https?%3A\/\/.+$/i);
+  if (match) return decodeURIComponent(match[0]);
+  return url;
+}
+
 export default function HomeScreen({ navigation }: HomeScreenProps) {
   const { user } = useAuth();
   const { getCartCount } = useCart();
   const cartCount = getCartCount();
+  const { getToken } = useClerkAuth();
+  const [eventos, setEventos] = useState<Evento[]>([]);
+
+  useEffect(() => {
+    getEvents(() => getToken({ skipCache: true }))
+      .then((data: ApiEvent[]) =>
+        setEventos(
+          data.map((e) => ({
+            id: e.id,
+            titulo: e.title,
+            local: e.location,
+            data: new Date(e.eventDate).toLocaleDateString('pt-BR'),
+            dataRelativa: new Date(e.eventDate).toLocaleDateString('pt-BR', {
+              day: '2-digit',
+              month: 'short',
+            }),
+            imagem: (() => { const u = sanitizeCoverUrl(e.coverImageUrl); return u ? { uri: u } : require('../assets/fotos-mock/1.jpg'); })(),
+            totalFotos: e._count?.photos ?? 0,
+            favorito: e.isFeatured ?? false,
+          }))
+        )
+      )
+      .catch(() => {});
+  }, [getToken]);
 
   const getGreeting = (): string => {
     const hour = new Date().getHours();
@@ -124,27 +159,6 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           </ScrollView>
         </View>
 
-        {/* Seção de Favoritos */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Favoritos</Text>
-            <TouchableOpacity>
-              <Text style={styles.seeAll}>Ver tudo</Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.horizontalScroll}
-          >
-            {fotosFavoritas.map((foto, index) => (
-              <TouchableOpacity key={index} style={styles.favoriteCard}>
-                <Image source={foto} style={styles.favoriteImage} />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>

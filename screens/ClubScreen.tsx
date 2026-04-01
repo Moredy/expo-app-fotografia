@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,17 +7,43 @@ import {
   ScrollView,
   ImageBackground,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { clubInfo } from '../data/mockData';
 import { ClubScreenNavigationProp } from '../navigation/types';
+import { useSubscriptionCheckout } from '../hooks/useCheckout';
+import Toast from '../components/Toast';
 
 interface ClubScreenProps {
   navigation: ClubScreenNavigationProp;
 }
 
 export default function ClubScreen({ navigation }: ClubScreenProps) {
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  const { state: checkoutState, error: checkoutError, startCheckout } = useSubscriptionCheckout({
+    planName: clubInfo.titulo,
+    price: clubInfo.preco,
+    interval: 'month',
+    onSuccess: () => {
+      navigation.replace('CheckoutSuccess', { type: 'subscription' });
+    },
+    onCancel: () => {
+      navigation.replace('CheckoutCancel');
+    },
+  });
+
+  const isLoading = checkoutState === 'loading';
+
+  React.useEffect(() => {
+    if (checkoutState === 'error' && checkoutError) {
+      setToastMessage(checkoutError);
+      setToastVisible(true);
+    }
+  }, [checkoutState, checkoutError]);
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <TouchableOpacity
@@ -66,9 +92,17 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
           <Text style={styles.priceLabel}>{clubInfo.mensalidade}</Text>
           <Text style={styles.price}>R$ {clubInfo.preco.toFixed(2)}</Text>
 
-          <TouchableOpacity style={styles.subscribeButton}>
-            <Text style={styles.subscribeButtonText}>Assinar {clubInfo.titulo}</Text>
-          </TouchableOpacity>
+          <TouchableOpacity
+              style={[styles.subscribeButton, isLoading && styles.subscribeButtonDisabled]}
+              onPress={startCheckout}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#000" />
+              ) : (
+                <Text style={styles.subscribeButtonText}>Assinar {clubInfo.titulo}</Text>
+              )}
+            </TouchableOpacity>
 
           <Text style={styles.disclaimer}>
             Mensalidade recorrente, cancele quando quiser
@@ -85,6 +119,13 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
           </View>
         </View>
       </ScrollView>
+
+      <Toast
+        visible={toastVisible}
+        message={toastMessage}
+        type="error"
+        onHide={() => setToastVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -178,6 +219,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 15,
+    minHeight: 58,
+    justifyContent: 'center',
+  },
+  subscribeButtonDisabled: {
+    opacity: 0.6,
   },
   subscribeButtonText: {
     color: '#000',

@@ -20,6 +20,8 @@ import ClubScreen from '../screens/ClubScreen';
 import EventoDetalhesScreen from '../screens/EventoDetalhesScreen';
 import GaleriaScreen from '../screens/GaleriaScreen';
 import PedidosScreen from '../screens/PedidosScreen';
+import CheckoutSuccessScreen from '../screens/CheckoutSuccessScreen';
+import CheckoutCancelScreen from '../screens/CheckoutCancelScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -154,6 +156,16 @@ export default function Navigation() {
             <Stack.Screen
               name="Pedidos"
               component={PedidosScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="CheckoutSuccess"
+              component={CheckoutSuccessScreen}
+              options={{ headerShown: false, gestureEnabled: false }}
+            />
+            <Stack.Screen
+              name="CheckoutCancel"
+              component={CheckoutCancelScreen}
               options={{ headerShown: false }}
             />
           </>

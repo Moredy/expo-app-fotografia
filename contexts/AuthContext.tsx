@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useRef, ReactNode } from 'react';
 import { useUser, useSignIn, useSignUp, useAuth as useClerkAuth } from '@clerk/clerk-expo';
 
 interface User {
@@ -24,7 +24,44 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const { user: clerkUser, isLoaded: userLoaded } = useUser();
   const { signIn: clerkSignIn, isLoaded: signInLoaded } = useSignIn();
-  const { signOut: clerkSignOut } = useClerkAuth();
+  const { signOut: clerkSignOut, getToken } = useClerkAuth();
+  const syncedUserIdRef = useRef<string | null>(null);
+
+  // Sincroniza o usuário Clerk com o backend logo após o login.
+  // Idempotente: o backend cria ou confirma o vínculo clerkId → User.
+  useEffect(() => {
+    if (!userLoaded || !clerkUser) return;
+    if (syncedUserIdRef.current === clerkUser.id) return; // já sincronizou nesta sessão
+
+    const syncUser = async () => {
+      try {
+        const token = await getToken({ skipCache: true });
+        if (!token) return;
+
+        const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
+        await fetch(`${baseUrl}/users/me/sync`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            email: clerkUser.primaryEmailAddress?.emailAddress ?? '',
+            name: clerkUser.fullName ?? clerkUser.firstName ?? 'Usuário',
+            phone: clerkUser.primaryPhoneNumber?.phoneNumber ?? null,
+            avatar_url: clerkUser.imageUrl ?? null,
+          }),
+        });
+
+        syncedUserIdRef.current = clerkUser.id;
+      } catch (err) {
+        // Falha silenciosa — o sync será tentado novamente na próxima sessão
+        console.warn('Clerk sync falhou:', err);
+      }
+    };
+
+    syncUser();
+  }, [clerkUser?.id, userLoaded]);
 
   const signIn = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     if (!signInLoaded) {
