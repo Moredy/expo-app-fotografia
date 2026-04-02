@@ -207,7 +207,7 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
       </ImageBackground>
 
       <View style={styles.photosHeader}>
-        <Text style={styles.photosTitle}>Fotos ({evento.totalFotos})</Text>
+        <Text style={styles.photosTitle}>Fotos ({fotos.length})</Text>
         {!loading && !error && (
           <TouchableOpacity
             style={styles.selectButton}

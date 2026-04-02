@@ -74,6 +74,34 @@ function normalizePhoto(photo: RawApiPhoto): ApiPhoto {
   };
 }
 
+function normalizePhotoPayload(payload: unknown): ApiPhoto[] {
+  if (Array.isArray(payload)) {
+    return payload.map((item) => normalizePhoto(item as RawApiPhoto));
+  }
+
+  if (payload && typeof payload === 'object') {
+    const maybe = payload as {
+      items?: unknown;
+      data?: unknown;
+      id?: string;
+    };
+
+    if (Array.isArray(maybe.items)) {
+      return maybe.items.map((item) => normalizePhoto(item as RawApiPhoto));
+    }
+
+    if (Array.isArray(maybe.data)) {
+      return maybe.data.map((item) => normalizePhoto(item as RawApiPhoto));
+    }
+
+    if (typeof maybe.id === 'string') {
+      return [normalizePhoto(payload as RawApiPhoto)];
+    }
+  }
+
+  return [];
+}
+
 // ─── Eventos ──────────────────────────────────────────────────────────────────
 
 export async function getEvents(getToken: GetToken): Promise<ApiEvent[]> {
@@ -96,22 +124,34 @@ export async function getEventById(id: string, getToken: GetToken): Promise<ApiE
 
 export async function getEventPhotos(eventId: string, getToken: GetToken): Promise<ApiPhoto[]> {
   const headers = await authHeaders(getToken);
-  const byQueryResponse = await fetchWithTimeout(
+
+  const candidates = [
+    `${BASE_URL}/events/${encodeURIComponent(eventId)}/photos`,
+    `${BASE_URL}/photos/${encodeURIComponent(eventId)}`,
     `${BASE_URL}/photos?eventId=${encodeURIComponent(eventId)}`,
-    {
-      method: 'GET',
-      headers,
-    },
-  );
+  ];
 
-  const response = byQueryResponse.status === 404
-    ? await fetchWithTimeout(`${BASE_URL}/events/${eventId}/photos`, {
-      method: 'GET',
-      headers,
-    })
-    : byQueryResponse;
+  let lastError: Error | null = null;
 
-  const data = await handleResponse<RawApiPhoto[]>(response);
+  for (const url of candidates) {
+    try {
+      const response = await fetchWithTimeout(url, {
+        method: 'GET',
+        headers,
+      });
 
-  return data.map(normalizePhoto).filter((photo) => Boolean(photo.url));
+      if (!response.ok && (response.status === 404 || response.status === 405)) {
+        continue;
+      }
+
+      const payload = await handleResponse<unknown>(response);
+      const photos = normalizePhotoPayload(payload).filter((photo) => Boolean(photo.url));
+      return photos;
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err : new Error('Erro ao carregar fotos.');
+    }
+  }
+
+  if (lastError) throw lastError;
+  return [];
 }

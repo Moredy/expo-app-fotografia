@@ -52,6 +52,10 @@ interface RawCartItem {
   userId?: string;
   photoId?: string;
   addedAt?: string;
+  photoUrl?: string | null;
+  thumbnailUrl?: string | null;
+  originalUrl?: string | null;
+  url?: string | null;
   photo?: {
     id?: string;
     eventId?: string;
@@ -158,9 +162,34 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 function sanitizePhotoUrl(url?: string | null): string | null {
   if (!url) return null;
-  const match = url.match(/https?%3A%2F%2F.+$/i) ?? url.match(/https?%3A\/\/.+$/i);
-  if (match) return decodeURIComponent(match[0]);
-  return url;
+  const trimmedUrl = url.trim();
+  if (!trimmedUrl) return null;
+
+  const safeDecode = (value: string): string => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
+
+  const encodedMatch =
+    trimmedUrl.match(/https?%3A%2F%2F.+$/i) ?? trimmedUrl.match(/https?%3A\/\/.+$/i);
+  if (encodedMatch) return safeDecode(encodedMatch[0]);
+
+  if (/^https?:\/\//i.test(trimmedUrl)) {
+    return trimmedUrl;
+  }
+
+  if (trimmedUrl.startsWith('//')) {
+    return `https:${trimmedUrl}`;
+  }
+
+  if (trimmedUrl.startsWith('/')) {
+    return `${BASE_URL}${trimmedUrl}`;
+  }
+
+  return `${BASE_URL}/${trimmedUrl.replace(/^\/+/, '')}`;
 }
 
 function toNumber(value: string | number | null | undefined, fallback = 0): number {
@@ -177,7 +206,13 @@ function normalizeCartItem(item: RawCartItem): BackendCartItem | null {
   if (!photoId) return null;
 
   const photoUrl = sanitizePhotoUrl(
-    item.photo?.thumbnailUrl ?? item.photo?.url ?? item.photo?.originalUrl,
+    item.photo?.thumbnailUrl ??
+      item.photo?.url ??
+      item.photo?.originalUrl ??
+      item.thumbnailUrl ??
+      item.url ??
+      item.originalUrl ??
+      item.photoUrl,
   );
 
   const eventTitle = item.photo?.event?.title ?? 'Evento';
