@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,23 @@ import {
   ScrollView,
   Image,
   Dimensions,
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { fotosCompradas } from '../data/mockData';
+import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
 import { GaleriaScreenNavigationProp } from '../navigation/types';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
+import Constants from 'expo-constants';
+import {
+  authorizePhotoDownload,
+  getUserLibrary,
+  UserLibraryPhoto,
+} from '../services/eventsService';
 
 const { width } = Dimensions.get('window');
 const photoSize = Math.floor((width - 54) / 3);
@@ -23,7 +35,93 @@ interface GaleriaScreenProps {
 type AbaAtiva = 'ultimas' | 'eventos';
 
 export default function GaleriaScreen({ navigation }: GaleriaScreenProps) {
+  const { getToken } = useClerkAuth();
   const [abaAtiva, setAbaAtiva] = useState<AbaAtiva>('ultimas');
+  const [fotosCompradas, setFotosCompradas] = useState<UserLibraryPhoto[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [savingPhotoId, setSavingPhotoId] = useState<string | null>(null);
+  const isExpoGo = Constants.appOwnership === 'expo';
+
+  const getFileExtension = (url: string): string => {
+    const noQuery = url.split('?')[0];
+    const maybeExt = noQuery.split('.').pop()?.toLowerCase();
+    if (maybeExt && /^[a-z0-9]{2,5}$/.test(maybeExt)) return maybeExt;
+    return 'jpg';
+  };
+
+  const fotosPorEvento = useMemo(() => {
+    return fotosCompradas.reduce((acc: Record<string, { eventoNome: string; fotos: UserLibraryPhoto[] }>, foto) => {
+      if (!acc[foto.eventId]) {
+        acc[foto.eventId] = {
+          eventoNome: foto.eventName,
+          fotos: [],
+        };
+      }
+      acc[foto.eventId].fotos.push(foto);
+      return acc;
+    }, {});
+  }, [fotosCompradas]);
+
+  const fetchLibrary = async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await getUserLibrary(() => getToken({ skipCache: true }));
+      setFotosCompradas(data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar galeria.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSavePhoto = async (photoId: string): Promise<void> => {
+    if (savingPhotoId) return;
+
+    setSavingPhotoId(photoId);
+    try {
+      const downloadUrl = await authorizePhotoDownload(photoId, () => getToken({ skipCache: true }));
+
+      if (Platform.OS === 'web' || isExpoGo) {
+        await Linking.openURL(downloadUrl);
+        if (isExpoGo) {
+          Alert.alert(
+            'Abrindo download',
+            'No Expo Go o salvamento direto na galeria e limitado. O arquivo foi aberto no navegador para voce salvar no dispositivo.',
+          );
+        }
+        return;
+      }
+
+      const permission = await MediaLibrary.requestPermissionsAsync(false, ['photo']);
+      if (!permission.granted) {
+        throw new Error('Permissao para salvar na galeria foi negada.');
+      }
+
+      const extension = getFileExtension(downloadUrl);
+      const fileUri = `${FileSystem.cacheDirectory}foto-${photoId}-${Date.now()}.${extension}`;
+      const downloaded = await FileSystem.downloadAsync(downloadUrl, fileUri);
+
+      await MediaLibrary.saveToLibraryAsync(downloaded.uri);
+
+      Alert.alert('Foto salva', 'A imagem foi salva no seu dispositivo.');
+    } catch (err: unknown) {
+      Alert.alert(
+        'Falha no download',
+        err instanceof Error ? err.message : 'Nao foi possivel salvar a foto.',
+      );
+    } finally {
+      setSavingPhotoId(null);
+    }
+  };
+
+  useEffect(() => {
+    fetchLibrary();
+    // O getToken do Clerk pode mudar de referência e causar loop no efeito.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const renderFotosUltimas = (): React.ReactElement => {
     if (fotosCompradas.length === 0) {
@@ -38,10 +136,19 @@ export default function GaleriaScreen({ navigation }: GaleriaScreenProps) {
     return (
       <View style={styles.photosGrid}>
         {fotosCompradas.map((foto) => (
-          <TouchableOpacity key={foto.id} style={styles.photoContainer}>
-            <Image source={foto.url} style={styles.photo} />
+          <TouchableOpacity
+            key={foto.id}
+            style={styles.photoContainer}
+            onPress={() => handleSavePhoto(foto.id)}
+            disabled={savingPhotoId === foto.id}
+          >
+            <Image source={{ uri: foto.imageUrl }} style={styles.photo} />
             <View style={styles.photoOverlay}>
-              <Ionicons name="download" size={24} color="#fff" />
+              {savingPhotoId === foto.id ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="download" size={24} color="#fff" />
+              )}
             </View>
           </TouchableOpacity>
         ))}
@@ -59,21 +166,9 @@ export default function GaleriaScreen({ navigation }: GaleriaScreenProps) {
       );
     }
 
-    // Agrupar fotos por evento
-    const fotosPorEvento = fotosCompradas.reduce((acc: any, foto) => {
-      if (!acc[foto.eventoId]) {
-        acc[foto.eventoId] = {
-          eventoNome: foto.eventoNome,
-          fotos: [],
-        };
-      }
-      acc[foto.eventoId].fotos.push(foto);
-      return acc;
-    }, {});
-
     return (
       <View style={styles.eventosList}>
-        {Object.entries(fotosPorEvento).map(([eventoId, evento]: [string, any]) => (
+        {Object.entries(fotosPorEvento).map(([eventoId, evento]) => (
           <View key={eventoId} style={styles.eventoSection}>
             <View style={styles.eventoHeader}>
               <Ionicons name="calendar" size={20} color="#D4A574" />
@@ -85,11 +180,20 @@ export default function GaleriaScreen({ navigation }: GaleriaScreenProps) {
               showsHorizontalScrollIndicator={false}
               style={styles.horizontalScroll}
             >
-              {evento.fotos.map((foto: any) => (
-                <TouchableOpacity key={foto.id} style={styles.eventoPhotoContainer}>
-                  <Image source={foto.url} style={styles.eventoPhoto} />
+              {evento.fotos.map((foto) => (
+                <TouchableOpacity
+                  key={foto.id}
+                  style={styles.eventoPhotoContainer}
+                  onPress={() => handleSavePhoto(foto.id)}
+                  disabled={savingPhotoId === foto.id}
+                >
+                  <Image source={{ uri: foto.imageUrl }} style={styles.eventoPhoto} />
                   <View style={styles.photoOverlay}>
-                    <Ionicons name="download" size={20} color="#fff" />
+                    {savingPhotoId === foto.id ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="download" size={20} color="#fff" />
+                    )}
                   </View>
                 </TouchableOpacity>
               ))}
@@ -152,10 +256,24 @@ export default function GaleriaScreen({ navigation }: GaleriaScreenProps) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {abaAtiva === 'ultimas' ? renderFotosUltimas() : renderFotosPorEvento()}
-        <View style={{ height: 100 }} />
-      </ScrollView>
+      {loading ? (
+        <View style={styles.centeredState}>
+          <ActivityIndicator size="large" color="#D4A574" />
+        </View>
+      ) : error ? (
+        <View style={styles.centeredState}>
+          <Ionicons name="alert-circle-outline" size={60} color="#FF8A65" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchLibrary}>
+            <Text style={styles.retryText}>Tentar novamente</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {abaAtiva === 'ultimas' ? renderFotosUltimas() : renderFotosPorEvento()}
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -232,6 +350,29 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  centeredState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  errorText: {
+    color: '#FF8A65',
+    fontSize: 15,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#D4A574',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  retryText: {
+    color: '#000',
+    fontWeight: '600',
+    fontSize: 15,
   },
   emptyContainer: {
     flex: 1,

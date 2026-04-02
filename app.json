@@ -24,6 +24,18 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       }
     },
+    "plugins": [
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Permita acesso as fotos para salvar suas imagens compradas.",
+          "savePhotosPermission": "Permita salvar as fotos compradas no seu dispositivo.",
+          "granularPermissions": [
+            "photo"
+          ]
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     }

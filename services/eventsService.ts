@@ -19,6 +19,35 @@ interface RawApiPhoto {
   createdAt: string;
 }
 
+interface RawLibraryItem {
+  id?: string;
+  createdAt?: string;
+  photo?: {
+    id?: string;
+    eventId?: string;
+    thumbnailUrl?: string | null;
+    url?: string | null;
+    originalUrl?: string | null;
+    event?: {
+      id?: string;
+      title?: string;
+    };
+  };
+}
+
+export interface UserLibraryPhoto {
+  id: string;
+  imageUrl: string;
+  eventId: string;
+  eventName: string;
+  purchasedAt: string;
+}
+
+interface AuthorizePhotoDownloadResponse {
+  authorized?: boolean;
+  downloadUrl?: string;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
@@ -102,6 +131,37 @@ function normalizePhotoPayload(payload: unknown): ApiPhoto[] {
   return [];
 }
 
+function normalizeLibraryPayload(payload: unknown): UserLibraryPhoto[] {
+  const items = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown[] }).items)
+      ? (payload as { items: unknown[] }).items
+      : payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown[] }).data)
+        ? (payload as { data: unknown[] }).data
+        : [];
+
+  return items
+    .map((item) => {
+      const raw = item as RawLibraryItem;
+      const photoId = raw.photo?.id;
+      const eventId = raw.photo?.eventId ?? raw.photo?.event?.id;
+      const imageUrl = sanitizePhotoUrl(
+        raw.photo?.originalUrl ?? raw.photo?.url ?? raw.photo?.thumbnailUrl,
+      );
+
+      if (!photoId || !eventId || !imageUrl) return null;
+
+      return {
+        id: photoId,
+        imageUrl,
+        eventId,
+        eventName: raw.photo?.event?.title?.trim() || 'Evento',
+        purchasedAt: raw.createdAt ?? new Date().toISOString(),
+      } as UserLibraryPhoto;
+    })
+    .filter((item): item is UserLibraryPhoto => item !== null);
+}
+
 // ─── Eventos ──────────────────────────────────────────────────────────────────
 
 export async function getEvents(getToken: GetToken): Promise<ApiEvent[]> {
@@ -154,4 +214,39 @@ export async function getEventPhotos(eventId: string, getToken: GetToken): Promi
 
   if (lastError) throw lastError;
   return [];
+}
+
+// ─── Biblioteca do usuário ───────────────────────────────────────────────────
+
+export async function getUserLibrary(getToken: GetToken): Promise<UserLibraryPhoto[]> {
+  const response = await fetchWithTimeout(`${BASE_URL}/users/me/library`, {
+    method: 'GET',
+    headers: await authHeaders(getToken),
+  });
+
+  const payload = await handleResponse<unknown>(response);
+  return normalizeLibraryPayload(payload);
+}
+
+export async function authorizePhotoDownload(
+  photoId: string,
+  getToken: GetToken,
+): Promise<string> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/downloads/photos/${encodeURIComponent(photoId)}/authorize`,
+    {
+      method: 'POST',
+      headers: await authHeaders(getToken),
+      body: JSON.stringify({}),
+    },
+  );
+
+  const payload = await handleResponse<AuthorizePhotoDownloadResponse>(response);
+  const downloadUrl = sanitizePhotoUrl(payload.downloadUrl);
+
+  if (!downloadUrl) {
+    throw new Error('URL de download nao retornada pelo servidor.');
+  }
+
+  return downloadUrl;
 }
