@@ -22,6 +22,7 @@ import Constants from 'expo-constants';
 import {
   authorizePhotoDownload,
   getUserLibrary,
+  logPhotoDownload,
   UserLibraryPhoto,
 } from '../services/eventsService';
 
@@ -83,6 +84,12 @@ export default function GaleriaScreen({ navigation }: GaleriaScreenProps) {
     setSavingPhotoId(photoId);
     try {
       const downloadUrl = await authorizePhotoDownload(photoId, () => getToken({ skipCache: true }));
+
+      try {
+        await logPhotoDownload(photoId, () => getToken({ skipCache: true }));
+      } catch {
+        // Falha de log não deve interromper o download para o usuário.
+      }
 
       if (Platform.OS === 'web' || isExpoGo) {
         await Linking.openURL(downloadUrl);

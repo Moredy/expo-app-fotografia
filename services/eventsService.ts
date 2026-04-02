@@ -250,3 +250,19 @@ export async function authorizePhotoDownload(
 
   return downloadUrl;
 }
+
+export async function logPhotoDownload(
+  photoId: string,
+  getToken: GetToken,
+): Promise<void> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/downloads/photos/${encodeURIComponent(photoId)}/log`,
+    {
+      method: 'POST',
+      headers: await authHeaders(getToken),
+      body: JSON.stringify({}),
+    },
+  );
+
+  await handleResponse<unknown>(response);
+}
