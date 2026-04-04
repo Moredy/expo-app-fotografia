@@ -125,14 +125,36 @@ async function handleResponse<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
-    let message = `Erro ${response.status}: ${response.statusText}`;
-    if (typeof parsedBody?.message === 'string' && parsedBody.message.trim().length > 0) {
-      message = parsedBody.message;
-    } else if (Array.isArray(parsedBody?.message) && parsedBody.message.length > 0) {
-      message = parsedBody.message.join('\n');
-    } else if (typeof parsedBody?.error === 'string' && parsedBody.error.trim().length > 0) {
-      message = parsedBody.error;
-    }
+    const defaultMessage = `Erro ${response.status}: ${response.statusText}`;
+    const pickMessageFromRawBody = (text: string): string | null => {
+      if (!text || !text.trim()) return null;
+
+      const match = text.match(/mensagem\s*:\s*(.+)$/im);
+      if (match?.[1]?.trim()) return match[1].trim();
+
+      return text.trim();
+    };
+
+    const pickMessageFromBody = (body: any): string | null => {
+      if (!body || typeof body !== 'object') return null;
+
+      const asString = (value: unknown): string | null => {
+        if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+        if (Array.isArray(value) && value.length > 0) return value.map(String).join('\n');
+        return null;
+      };
+
+      return (
+        asString(body.message) ??
+        asString(body.mensagem) ??
+        asString(body.error) ??
+        asString(body.details) ??
+        asString(body.detail)
+      );
+    };
+
+    const message =
+      pickMessageFromBody(parsedBody) ?? pickMessageFromRawBody(rawBody) ?? defaultMessage;
 
     if (__DEV__) {
       console.log('[cartService] HTTP error response', {

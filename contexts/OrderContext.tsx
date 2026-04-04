@@ -1,4 +1,8 @@
-import React, { createContext, useState, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useCallback, useEffect, useRef } from 'react';
+import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
+import { useAuth } from './AuthContext';
+import { getOrders } from '../services/paymentService';
+import { ApiOrder } from '../types/payment';
 
 interface OrderFoto {
   id: string;
@@ -27,7 +31,9 @@ interface CartItem {
 
 interface OrderContextData {
   orders: Order[];
+  isLoading: boolean;
   createOrder: (cartItems: CartItem[], total: number) => Order;
+  refreshOrders: () => Promise<void>;
   getStatusColor: (status: string) => string;
   getStatusLabel: (status: string) => string;
 }
@@ -47,51 +53,78 @@ interface OrderProviderProps {
 }
 
 export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
-  const [orders, setOrders] = useState<Order[]>([
-    {
-      id: '1',
-      data: '2026-03-10',
-      total: 45.00,
-      status: 'entregue',
-      items: 3,
-      fotos: [
-        {
-          id: '1',
-          url: require('../assets/fotos-mock/1.jpg'),
-          eventoNome: 'Concurso Hípico Nacional',
-        },
-        {
-          id: '2',
-          url: require('../assets/fotos-mock/2.jpeg'),
-          eventoNome: 'Concurso Hípico Nacional',
-        },
-        {
-          id: '3',
-          url: require('../assets/fotos-mock/3.jpeg'),
-          eventoNome: 'Campeonato Regional',
-        },
-      ],
-    },
-    {
-      id: '2',
-      data: '2026-03-05',
-      total: 30.00,
-      status: 'processando',
-      items: 2,
-      fotos: [
-        {
-          id: '4',
-          url: require('../assets/fotos-mock/6.jpeg'),
-          eventoNome: 'Copa de Salto',
-        },
-        {
-          id: '5',
-          url: require('../assets/fotos-mock/8.jpeg'),
-          eventoNome: 'Copa de Salto',
-        },
-      ],
-    },
-  ]);
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const { getToken } = useClerkAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const isRefreshingRef = useRef(false);
+  const getTokenRef = useRef(getToken);
+
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
+  const mapOrderFromApi = (order: ApiOrder): Order => {
+    const photos = (order.orderItems ?? [])
+      .map((item) => {
+        const imageUrl = item.photo?.thumbnailUrl;
+        if (!imageUrl) return null;
+
+        return {
+          id: item.id,
+          url: { uri: imageUrl },
+          eventoNome: item.photo?.event?.title ?? 'Evento',
+        };
+      })
+      .filter((item): item is OrderFoto => item !== null);
+
+    const totalValue = Number(order.finalAmount ?? order.totalAmount ?? order.total ?? 0);
+
+    return {
+      id: order.orderNumber ?? order.id,
+      data: new Date(order.createdAt).toLocaleDateString('pt-BR'),
+      total: Number.isFinite(totalValue) ? totalValue : 0,
+      status: order.status,
+      items: order.orderItems?.length ?? order.photoIds?.length ?? photos.length,
+      fotos: photos,
+    };
+  };
+
+  const refreshOrders = useCallback(async () => {
+    if (isRefreshingRef.current) return;
+    if (isAuthLoading) return;
+
+    if (!isAuthenticated) {
+      setOrders([]);
+      setIsLoading(false);
+      return;
+    }
+
+    isRefreshingRef.current = true;
+    setIsLoading(true);
+    try {
+      const backendOrders = await getOrders(async () => {
+        const freshToken = await getTokenRef.current({ skipCache: true });
+        return freshToken ?? getTokenRef.current();
+      });
+      const mappedOrders = [...backendOrders]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .map(mapOrderFromApi);
+
+      setOrders(mappedOrders);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Falha ao buscar pedidos: ${message}`);
+      setOrders([]);
+    } finally {
+      isRefreshingRef.current = false;
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, isAuthLoading]);
+
+  useEffect(() => {
+    void refreshOrders();
+  }, [refreshOrders]);
 
   const createOrder = (cartItems: CartItem[], total: number): Order => {
     const newOrder: Order = {
@@ -113,11 +146,16 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
 
   const getStatusColor = (status: string): string => {
     switch (status) {
+      case 'paid':
       case 'entregue':
+      case 'delivered':
         return '#34C759';
       case 'processando':
+      case 'processing':
+      case 'pending':
         return '#FF9500';
       case 'cancelado':
+      case 'cancelled':
         return '#FF3B30';
       default:
         return '#8E8E93';
@@ -126,11 +164,17 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
 
   const getStatusLabel = (status: string): string => {
     switch (status) {
+      case 'delivered':
       case 'entregue':
         return 'Entregue';
       case 'processando':
+      case 'processing':
+      case 'pending':
         return 'Processando';
+      case 'paid':
+        return 'Pago';
       case 'cancelado':
+      case 'cancelled':
         return 'Cancelado';
       default:
         return 'Desconhecido';
@@ -141,7 +185,9 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
     <OrderContext.Provider
       value={{
         orders,
+        isLoading,
         createOrder,
+        refreshOrders,
         getStatusColor,
         getStatusLabel,
       }}

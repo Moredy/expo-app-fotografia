@@ -14,7 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface CheckoutCallbacks {
   onSuccess?: () => void;
-  onCancel?: () => void;
+  onCancel?: (orderId?: string) => void;
 }
 
 // ─── Hook: compra avulsa ──────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderChec
       const cancelUrl = Linking.createURL('checkout/cancel');
       const redirectPrefix = Linking.createURL('checkout');
 
-      const { checkoutUrl } = await createOrderCheckout({
+      const { checkoutUrl, orderId } = await createOrderCheckout({
         userId: user.id,
         photoIds,
         successUrl,
@@ -64,7 +64,9 @@ export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderChec
         onSuccess?.();
       } else {
         setState('idle');
-        onCancel?.();
+        const canceledOrderId =
+          result.type === 'success' ? (extractOrderIdFromUrl(result.url) ?? orderId) : orderId;
+        onCancel?.(canceledOrderId);
       }
     } catch (err: unknown) {
       const message = resolveErrorMessage(err);
@@ -159,4 +161,13 @@ function resolveErrorMessage(err: unknown): string {
     return err.message;
   }
   return 'Ocorreu um erro inesperado. Tente novamente.';
+}
+
+function extractOrderIdFromUrl(url: string): string | undefined {
+  const queryIndex = url.indexOf('?');
+  if (queryIndex < 0) return undefined;
+
+  const params = new URLSearchParams(url.slice(queryIndex + 1));
+  const value = params.get('orderId') ?? params.get('order_id') ?? params.get('order');
+  return value?.trim() || undefined;
 }

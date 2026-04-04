@@ -41,9 +41,24 @@ export interface ApiOrder {
   id: string;
   userId: string;
   status: string;
-  total: number;
-  photoIds: string[];
+  orderNumber?: string;
+  total?: number;
+  totalAmount?: number | string;
+  finalAmount?: number | string;
+  photoIds?: string[];
   createdAt: string;
+  orderItems?: {
+    id: string;
+    photoId?: string;
+    photo?: {
+      id: string;
+      thumbnailUrl?: string | null;
+      event?: {
+        id: string;
+        title: string;
+      };
+    };
+  }[];
 }
 
 export interface ApiSubscription {

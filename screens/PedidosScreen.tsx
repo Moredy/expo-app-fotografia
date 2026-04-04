@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,7 +18,11 @@ interface PedidosScreenProps {
 }
 
 export default function PedidosScreen({ navigation }: PedidosScreenProps) {
-  const { orders, getStatusColor, getStatusLabel } = useOrders();
+  const { orders, isLoading, refreshOrders, getStatusColor, getStatusLabel } = useOrders();
+
+  React.useEffect(() => {
+    void refreshOrders();
+  }, []);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -33,7 +38,12 @@ export default function PedidosScreen({ navigation }: PedidosScreenProps) {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {orders.length === 0 ? (
+        {isLoading ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color="#D4A574" />
+            <Text style={styles.loadingText}>Buscando seus pedidos...</Text>
+          </View>
+        ) : orders.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="receipt-outline" size={80} color="#8E8E93" />
             <Text style={styles.emptyTitle}>Nenhum pedido ainda</Text>
@@ -45,8 +55,10 @@ export default function PedidosScreen({ navigation }: PedidosScreenProps) {
           orders.map((order) => (
             <TouchableOpacity key={order.id} style={styles.orderCard}>
               <View style={styles.orderHeader}>
-                <View>
-                  <Text style={styles.orderId}>Pedido #{order.id}</Text>
+                <View style={styles.orderHeaderLeft}>
+                  <Text style={styles.orderId} numberOfLines={1} ellipsizeMode="tail">
+                    Pedido #{order.id}
+                  </Text>
                   <Text style={styles.orderDate}>{order.data}</Text>
                 </View>
                 <View
@@ -138,6 +150,18 @@ const styles = StyleSheet.create({
     paddingTop: 100,
     paddingHorizontal: 40,
   },
+  loadingState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 100,
+    paddingHorizontal: 40,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#B8A0D4',
+    marginTop: 16,
+    textAlign: 'center',
+  },
   emptyTitle: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -164,8 +188,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 15,
   },
+  orderHeaderLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
   orderId: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#fff',
     marginBottom: 4,

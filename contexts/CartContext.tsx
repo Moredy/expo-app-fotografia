@@ -58,7 +58,7 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [totalAmount, setTotalAmount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, isLoading: isAuthLoading } = useAuth();
   const { getToken } = useClerkAuth();
 
   const pendingAddIdsRef = useRef<Set<string>>(new Set());
@@ -159,6 +159,10 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
   });
 
   const refreshCart = async (silent = false): Promise<void> => {
+    if (isAuthLoading) {
+      return;
+    }
+
     if (!isAuthenticated || !user) {
       setCartItems([]);
       setTotalAmount(0);
@@ -175,7 +179,10 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
       if (silent) return;
 
       const message = getErrorMessage(err);
-      const isAuthNotReady = message.toLowerCase().includes('sessao expirada');
+      const normalizedMessage = message.toLowerCase();
+      const isAuthNotReady =
+        normalizedMessage.includes('sessao expirada') ||
+        normalizedMessage.includes('token de autenticacao');
       if (!isAuthNotReady) {
         console.warn('Falha ao carregar carrinho:', message);
       }
@@ -187,6 +194,8 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
+    if (isAuthLoading) return;
+
     if (!isAuthenticated || !user) {
       setCartItems([]);
       setTotalAmount(0);
@@ -196,7 +205,7 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
 
     void refreshCart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, user?.id, isAuthLoading]);
 
   const addToCart = async (foto: Foto, evento: Evento): Promise<boolean> => {
     const itemExists = cartItems.some((item) => item.foto.id === foto.id);
@@ -228,15 +237,26 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
         }
       }
 
-      const message = getErrorMessage(err, 'Falha ao adicionar item no carrinho.').toLowerCase();
+      const normalizedMessage = getErrorMessage(err, 'Falha ao adicionar item no carrinho.')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+      const isConflict = err instanceof CartHttpError && err.status === 409;
+      const isAlreadyPurchased =
+        normalizedMessage.includes('ja foi comprada') ||
+        normalizedMessage.includes('ja foi comprado') ||
+        normalizedMessage.includes('already purchased') ||
+        normalizedMessage.includes('already bought');
       const isAlreadyInCart =
-        (err instanceof CartHttpError && err.status === 409) ||
-        message.includes('ja esta no carrinho') ||
-        message.includes('já está no carrinho') ||
-        message.includes('already in cart') ||
-        message.includes('duplicate') ||
-        message.includes('conflict') ||
-        message.includes('409');
+        (isConflict && !isAlreadyPurchased) ||
+        normalizedMessage.includes('ja esta no carrinho') ||
+        normalizedMessage.includes('already in cart') ||
+        normalizedMessage.includes('duplicate');
+
+      if (isAlreadyPurchased) {
+        void refreshCart(true);
+        throw new Error(getErrorMessage(err, 'Essa foto ja foi comprada por esse usuario.'));
+      }
 
       if (isAlreadyInCart) {
         void refreshCart(true);

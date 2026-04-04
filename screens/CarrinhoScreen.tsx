@@ -35,8 +35,8 @@ export default function CarrinhoScreen({ navigation }: CarrinhoScreenProps) {
       void clearCart();
       navigation.navigate('CheckoutSuccess', { type: 'order' });
     },
-    onCancel: () => {
-      navigation.navigate('CheckoutCancel');
+    onCancel: (orderId) => {
+      navigation.navigate('CheckoutCancel', { orderId });
     },
   });
 

@@ -15,7 +15,7 @@ import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
 
 import { RootStackParamList } from '../navigation/types';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserOrders, getUserSubscriptions } from '../services/paymentService';
+import { getOrders, getUserSubscriptions } from '../services/paymentService';
 import { ApiOrder, ApiSubscription } from '../types/payment';
 
 type Props = {
@@ -47,7 +47,7 @@ export default function CheckoutSuccessScreen({ navigation, route }: Props) {
       const getFreshToken = () => getToken({ skipCache: true });
 
       if (type === 'order') {
-        const orders = await getUserOrders(user!.id, getFreshToken);
+        const orders = await getOrders(getFreshToken);
         const sorted = [...orders].sort(
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         );
@@ -60,7 +60,9 @@ export default function CheckoutSuccessScreen({ navigation, route }: Props) {
       setFetchState('success');
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : 'Não foi possível buscar o status do pagamento.';
+        err instanceof Error && err.message.trim().length > 0
+          ? err.message
+          : 'Não foi possível buscar o status do pagamento.';
       setFetchError(message);
       setFetchState('error');
     }
@@ -114,8 +116,11 @@ export default function CheckoutSuccessScreen({ navigation, route }: Props) {
             <Text style={styles.cardTitle}>Último pedido</Text>
             <Row label="ID" value={`#${lastOrder.id}`} />
             <Row label="Status" value={formatOrderStatus(lastOrder.status)} />
-            <Row label="Total" value={`R$ ${Number(lastOrder.total).toFixed(2).replace('.', ',')}`} />
-            <Row label="Fotos" value={String(lastOrder.photoIds?.length ?? '—')} />
+            <Row
+              label="Total"
+              value={`R$ ${resolveOrderTotal(lastOrder).toFixed(2).replace('.', ',')}`}
+            />
+            <Row label="Fotos" value={String(resolveOrderPhotosCount(lastOrder))} />
             <Row label="Data" value={formatDate(lastOrder.createdAt)} />
           </View>
         )}
@@ -203,6 +208,18 @@ function formatSubStatus(status: string): string {
     past_due: 'Pagamento vencido',
   };
   return map[status] ?? status;
+}
+
+function resolveOrderTotal(order: ApiOrder): number {
+  const raw = order.finalAmount ?? order.totalAmount ?? order.total ?? 0;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function resolveOrderPhotosCount(order: ApiOrder): number {
+  if (Array.isArray(order.orderItems)) return order.orderItems.length;
+  if (Array.isArray(order.photoIds)) return order.photoIds.length;
+  return 0;
 }
 
 // ─── Estilos ──────────────────────────────────────────────────────────────────

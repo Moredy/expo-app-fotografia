@@ -1,15 +1,59 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
+import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
 import { RootStackParamList } from '../navigation/types';
+import { cancelOrderCheckout } from '../services/paymentService';
+import { useOrders } from '../contexts/OrderContext';
 
 interface Props {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CheckoutCancel'>;
+  route: RouteProp<RootStackParamList, 'CheckoutCancel'>;
 }
 
-export default function CheckoutCancelScreen({ navigation }: Props) {
+export default function CheckoutCancelScreen({ navigation, route }: Props) {
+  const orderId = route.params?.orderId;
+  const { getToken } = useClerkAuth();
+  const { refreshOrders } = useOrders();
+  const [isSyncing, setIsSyncing] = React.useState<boolean>(Boolean(orderId));
+  const [syncMessage, setSyncMessage] = React.useState<string>('');
+
+  React.useEffect(() => {
+    if (!orderId) {
+      setIsSyncing(false);
+      setSyncMessage('');
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncCancelledOrder = async () => {
+      try {
+        await cancelOrderCheckout(orderId, async () => {
+          const fresh = await getToken({ skipCache: true });
+          return fresh ?? getToken();
+        });
+
+        await refreshOrders();
+        if (!cancelled) setSyncMessage('Pedido atualizado como cancelado.');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Nao foi possivel atualizar o pedido.';
+        if (!cancelled) setSyncMessage(message);
+      } finally {
+        if (!cancelled) setIsSyncing(false);
+      }
+    };
+
+    void syncCancelledOrder();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, getToken, refreshOrders]);
+
   function handleGoBack() {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -34,6 +78,19 @@ export default function CheckoutCancelScreen({ navigation }: Props) {
           O pagamento não foi concluído. Nenhum valor foi cobrado.{'\n'}Você pode tentar novamente
           quando quiser.
         </Text>
+
+        {isSyncing && (
+          <View style={styles.syncBox}>
+            <ActivityIndicator size="small" color="#D4A574" />
+            <Text style={styles.syncText}>Atualizando status do pedido...</Text>
+          </View>
+        )}
+
+        {!isSyncing && syncMessage.length > 0 && (
+          <View style={styles.syncBox}>
+            <Text style={styles.syncText}>{syncMessage}</Text>
+          </View>
+        )}
 
         <View style={styles.actions}>
           <TouchableOpacity style={styles.primaryButton} onPress={handleGoBack}>
@@ -79,6 +136,22 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginBottom: 40,
     paddingHorizontal: 8,
+  },
+  syncBox: {
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  syncText: {
+    color: '#E6D7FF',
+    fontSize: 14,
+    textAlign: 'center',
   },
   actions: {
     width: '100%',

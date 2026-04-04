@@ -56,7 +56,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         syncedUserIdRef.current = clerkUser.id;
       } catch (err) {
         // Falha silenciosa — o sync será tentado novamente na próxima sessão
-        console.warn('Clerk sync falhou:', err);
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`Clerk sync falhou: ${message}`);
       }
     };
 

@@ -25,7 +25,9 @@ export type RootStackParamList = {
   CheckoutSuccess: {
     type: 'order' | 'subscription';
   };
-  CheckoutCancel: undefined;
+  CheckoutCancel: {
+    orderId?: string;
+  } | undefined;
 } & TabParamList; // Permite navegação direta para as tabs também
 
 // Tipos compostos para navegação das telas do Tab
