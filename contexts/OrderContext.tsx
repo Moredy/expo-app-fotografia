@@ -145,8 +145,11 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
   };
 
   const getStatusColor = (status: string): string => {
-    switch (status) {
+    const normalizedStatus = status.trim().toLowerCase();
+
+    switch (normalizedStatus) {
       case 'paid':
+      case 'pago':
       case 'entregue':
       case 'delivered':
         return '#34C759';
@@ -163,7 +166,9 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
   };
 
   const getStatusLabel = (status: string): string => {
-    switch (status) {
+    const normalizedStatus = status.trim().toLowerCase();
+
+    switch (normalizedStatus) {
       case 'delivered':
       case 'entregue':
         return 'Entregue';
@@ -172,12 +177,13 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
       case 'pending':
         return 'Processando';
       case 'paid':
+      case 'pago':
         return 'Pago';
       case 'cancelado':
       case 'cancelled':
         return 'Cancelado';
       default:
-        return 'Desconhecido';
+        return status;
     }
   };
 

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 
@@ -28,8 +28,19 @@ export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderChec
   const { getToken } = useClerkAuth();
   const [state, setState] = useState<CheckoutState>('idle');
   const [error, setError] = useState<string | null>(null);
+  const inFlightRef = useRef(false);
+
+  const getCheckoutToken = useCallback(async (): Promise<string | null> => {
+    let token = await getToken();
+    if (!token) {
+      token = await getToken({ skipCache: true });
+    }
+    return token;
+  }, [getToken]);
 
   const startCheckout = useCallback(async () => {
+    if (inFlightRef.current) return;
+
     if (!user) {
       setError('Você precisa estar autenticado para realizar uma compra.');
       setState('error');
@@ -44,6 +55,7 @@ export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderChec
 
     setState('loading');
     setError(null);
+    inFlightRef.current = true;
 
     try {
       const successUrl = Linking.createURL('checkout/success');
@@ -55,7 +67,7 @@ export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderChec
         photoIds,
         successUrl,
         cancelUrl,
-      }, () => getToken({ skipCache: true }));
+      }, getCheckoutToken);
 
       const result = await WebBrowser.openAuthSessionAsync(checkoutUrl, redirectPrefix);
 
@@ -72,8 +84,10 @@ export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderChec
       const message = resolveErrorMessage(err);
       setError(message);
       setState('error');
+    } finally {
+      inFlightRef.current = false;
     }
-  }, [user, photoIds, onSuccess, onCancel]);
+  }, [user, photoIds, onSuccess, onCancel, getCheckoutToken]);
 
   const resetState = useCallback(() => {
     setState('idle');
@@ -102,8 +116,19 @@ export function useSubscriptionCheckout({
   const { getToken } = useClerkAuth();
   const [state, setState] = useState<CheckoutState>('idle');
   const [error, setError] = useState<string | null>(null);
+  const inFlightRef = useRef(false);
+
+  const getCheckoutToken = useCallback(async (): Promise<string | null> => {
+    let token = await getToken();
+    if (!token) {
+      token = await getToken({ skipCache: true });
+    }
+    return token;
+  }, [getToken]);
 
   const startCheckout = useCallback(async () => {
+    if (inFlightRef.current) return;
+
     if (!user) {
       setError('Você precisa estar autenticado para assinar.');
       setState('error');
@@ -112,6 +137,7 @@ export function useSubscriptionCheckout({
 
     setState('loading');
     setError(null);
+    inFlightRef.current = true;
 
     try {
       const successUrl = Linking.createURL('checkout/success');
@@ -125,7 +151,7 @@ export function useSubscriptionCheckout({
         interval,
         successUrl,
         cancelUrl,
-      }, () => getToken({ skipCache: true }));
+      }, getCheckoutToken);
 
       const result = await WebBrowser.openAuthSessionAsync(checkoutUrl, redirectPrefix);
 
@@ -140,8 +166,10 @@ export function useSubscriptionCheckout({
       const message = resolveErrorMessage(err);
       setError(message);
       setState('error');
+    } finally {
+      inFlightRef.current = false;
     }
-  }, [user, planName, price, interval, onSuccess, onCancel]);
+  }, [user, planName, price, interval, onSuccess, onCancel, getCheckoutToken]);
 
   const resetState = useCallback(() => {
     setState('idle');

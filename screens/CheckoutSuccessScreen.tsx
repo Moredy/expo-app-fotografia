@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -24,11 +24,14 @@ type Props = {
 };
 
 type FetchState = 'loading' | 'success' | 'error';
+const DETAIL_FETCH_TIMEOUT_MS = 12_000;
 
 export default function CheckoutSuccessScreen({ navigation, route }: Props) {
   const { type } = route.params;
   const { user } = useAuth();
   const { getToken } = useClerkAuth();
+  const userId = user?.id;
+  const getTokenRef = useRef(getToken);
 
   const [fetchState, setFetchState] = useState<FetchState>('loading');
   const [lastOrder, setLastOrder] = useState<ApiOrder | null>(null);
@@ -36,24 +39,39 @@ export default function CheckoutSuccessScreen({ navigation, route }: Props) {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) return;
-    loadData();
-  }, [user]);
+    getTokenRef.current = getToken;
+  }, [getToken]);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
+    if (!userId) return;
+
     setFetchState('loading');
     setFetchError(null);
     try {
-      const getFreshToken = () => getToken({ skipCache: true });
+      const getFreshToken = async () => {
+        let token = await getTokenRef.current();
+        if (!token) {
+          token = await getTokenRef.current({ skipCache: true });
+        }
+        return token;
+      };
 
       if (type === 'order') {
-        const orders = await getOrders(getFreshToken);
+        const orders = await withTimeout(
+          getOrders(getFreshToken),
+          DETAIL_FETCH_TIMEOUT_MS,
+          'A busca dos detalhes demorou mais que o esperado. Tente novamente.',
+        );
         const sorted = [...orders].sort(
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         );
         setLastOrder(sorted[0] ?? null);
       } else {
-        const subs = await getUserSubscriptions(user!.id, getFreshToken);
+        const subs = await withTimeout(
+          getUserSubscriptions(userId, getFreshToken),
+          DETAIL_FETCH_TIMEOUT_MS,
+          'A busca dos detalhes demorou mais que o esperado. Tente novamente.',
+        );
         const active = subs.find((s) => s.status === 'active') ?? subs[0] ?? null;
         setActiveSubscription(active);
       }
@@ -66,7 +84,11 @@ export default function CheckoutSuccessScreen({ navigation, route }: Props) {
       setFetchError(message);
       setFetchState('error');
     }
-  }
+  }, [type, userId]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   function handleGoHome() {
     navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
@@ -185,9 +207,11 @@ function formatDate(iso: string): string {
 }
 
 function formatOrderStatus(status: string): string {
+  const normalizedStatus = status.trim().toLowerCase();
   const map: Record<string, string> = {
     pending: 'Pendente',
     paid: 'Pago',
+    completed: 'Pago',
     processing: 'Processando',
     delivered: 'Entregue',
     cancelled: 'Cancelado',
@@ -196,7 +220,7 @@ function formatOrderStatus(status: string): string {
     entregue: 'Entregue',
     cancelado: 'Cancelado',
   };
-  return map[status] ?? status;
+  return map[normalizedStatus] ?? status;
 }
 
 function formatSubStatus(status: string): string {
@@ -220,6 +244,24 @@ function resolveOrderPhotosCount(order: ApiOrder): number {
   if (Array.isArray(order.orderItems)) return order.orderItems.length;
   if (Array.isArray(order.photoIds)) return order.photoIds.length;
   return 0;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timerId);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timerId);
+        reject(error);
+      });
+  });
 }
 
 // ─── Estilos ──────────────────────────────────────────────────────────────────
