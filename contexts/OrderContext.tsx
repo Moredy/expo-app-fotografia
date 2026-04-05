@@ -90,6 +90,42 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
     };
   };
 
+  const getErrorMessage = (
+    err: unknown,
+    fallback = 'Erro ao buscar pedidos.',
+  ): string => {
+    if (err instanceof Error && err.message.trim().length > 0) return err.message;
+    if (typeof err === 'string' && err.trim().length > 0) return err;
+
+    if (err && typeof err === 'object') {
+      const maybe = err as {
+        message?: unknown;
+        error?: unknown;
+        response?: { data?: { message?: unknown; error?: unknown } };
+      };
+
+      if (typeof maybe.message === 'string' && maybe.message.trim().length > 0) {
+        return maybe.message;
+      }
+
+      if (typeof maybe.error === 'string' && maybe.error.trim().length > 0) {
+        return maybe.error;
+      }
+
+      const responseMessage = maybe.response?.data?.message;
+      if (typeof responseMessage === 'string' && responseMessage.trim().length > 0) {
+        return responseMessage;
+      }
+
+      const responseError = maybe.response?.data?.error;
+      if (typeof responseError === 'string' && responseError.trim().length > 0) {
+        return responseError;
+      }
+    }
+
+    return fallback;
+  };
+
   const refreshOrders = useCallback(async () => {
     if (isRefreshingRef.current) return;
     if (isAuthLoading) return;
@@ -113,8 +149,19 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
 
       setOrders(mappedOrders);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`Falha ao buscar pedidos: ${message}`);
+      const message = getErrorMessage(error);
+      const normalizedMessage = message
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+      const isAuthNotReady =
+        normalizedMessage.includes('sessao expirada') ||
+        normalizedMessage.includes('token de autenticacao');
+
+      if (!isAuthNotReady) {
+        console.warn(`Falha ao buscar pedidos: ${message}`);
+      }
       setOrders([]);
     } finally {
       isRefreshingRef.current = false;

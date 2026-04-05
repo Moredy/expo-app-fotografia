@@ -8,21 +8,33 @@ import {
   ImageBackground,
   Image,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
 import { clubInfo } from '../data/mockData';
 import { ClubScreenNavigationProp } from '../navigation/types';
 import { useSubscriptionCheckout } from '../hooks/useCheckout';
 import Toast from '../components/Toast';
+import { useAuth } from '../contexts/AuthContext';
+import { ApiSubscription } from '../types/payment';
+import { cancelSubscription, getSubscriptions, getUserSubscriptions } from '../services/paymentService';
 
 interface ClubScreenProps {
   navigation: ClubScreenNavigationProp;
 }
 
 export default function ClubScreen({ navigation }: ClubScreenProps) {
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const { getToken } = useClerkAuth();
+  const userId = user?.id;
+  const getTokenRef = React.useRef(getToken);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [isLoadingSubscription, setIsLoadingSubscription] = useState<boolean>(true);
+  const [activeSubscription, setActiveSubscription] = useState<ApiSubscription | null>(null);
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
 
   const { state: checkoutState, error: checkoutError, startCheckout } = useSubscriptionCheckout({
     planName: clubInfo.titulo,
@@ -44,6 +56,122 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
       setToastVisible(true);
     }
   }, [checkoutState, checkoutError]);
+
+  React.useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
+  const getStableToken = React.useCallback(async (): Promise<string | null> => {
+    let token = await getTokenRef.current();
+    if (!token) {
+      token = await getTokenRef.current({ skipCache: true });
+    }
+    return token;
+  }, []);
+
+  const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error && error.message.trim().length > 0) return error.message;
+    if (typeof error === 'string' && error.trim().length > 0) return error;
+    return 'Nao foi possivel verificar a assinatura ativa';
+  };
+
+  const loadActiveSubscription = React.useCallback(async () => {
+    if (isAuthLoading) return;
+
+    if (!userId) {
+      setActiveSubscription(null);
+      setIsLoadingSubscription(false);
+      return;
+    }
+
+    setIsLoadingSubscription(true);
+    try {
+      let subscriptions: ApiSubscription[] = [];
+
+      try {
+        subscriptions = await getSubscriptions(getStableToken);
+      } catch {
+        subscriptions = await getUserSubscriptions(userId, getStableToken);
+      }
+
+      const normalized = subscriptions.find(
+        (subscription) => subscription.status?.trim().toLowerCase() === 'active',
+      ) ?? null;
+
+      setActiveSubscription(normalized);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      const normalizedMessage = message
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+      const isAuthNotReady =
+        normalizedMessage.includes('sessao expirada') ||
+        normalizedMessage.includes('token de autenticacao');
+
+      if (!isAuthNotReady) {
+        setToastMessage(message);
+        setToastVisible(true);
+      }
+      setActiveSubscription(null);
+    } finally {
+      setIsLoadingSubscription(false);
+    }
+  }, [getStableToken, isAuthLoading, userId]);
+
+  React.useEffect(() => {
+    void loadActiveSubscription();
+  }, [loadActiveSubscription]);
+
+  const handleCancelSubscription = () => {
+    if (!activeSubscription || isCancelling) return;
+
+    Alert.alert(
+      'Cancelar assinatura',
+      'Deseja cancelar sua assinatura ativa agora?',
+      [
+        { text: 'Manter', style: 'cancel' },
+        {
+          text: 'Cancelar assinatura',
+          style: 'destructive',
+          onPress: () => { void confirmCancelSubscription(activeSubscription.id); },
+        },
+      ],
+    );
+  };
+
+  const confirmCancelSubscription = async (subscriptionId: string) => {
+    setIsCancelling(true);
+    try {
+      await cancelSubscription(subscriptionId, async () => {
+        return getStableToken();
+      });
+      await loadActiveSubscription();
+      setToastMessage('Assinatura cancelada com sucesso.');
+      setToastVisible(true);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : 'Nao foi possivel cancelar a assinatura.';
+      setToastMessage(message);
+      setToastVisible(true);
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const shouldDisableCheckout =
+    isLoading || isLoadingSubscription || isAuthLoading || Boolean(activeSubscription);
+
+  const formatDate = (value?: string | null): string => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString('pt-BR');
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <TouchableOpacity
@@ -92,13 +220,44 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
           <Text style={styles.priceLabel}>{clubInfo.mensalidade}</Text>
           <Text style={styles.price}>R$ {clubInfo.preco.toFixed(2)}</Text>
 
+          {isLoadingSubscription ? (
+            <View style={styles.subscriptionStateBox}>
+              <ActivityIndicator color="#D4A574" size="small" />
+              <Text style={styles.subscriptionStateText}>Verificando assinatura ativa...</Text>
+            </View>
+          ) : activeSubscription ? (
+            <View style={styles.activeCard}>
+              <Text style={styles.activeCardTitle}>Assinatura ativa</Text>
+              <Text style={styles.activeCardPlan}>{activeSubscription.planName}</Text>
+              <Text style={styles.activeCardMeta}>
+                Renova em: {formatDate(activeSubscription.currentPeriodEnd ?? activeSubscription.nextBillingDate ?? activeSubscription.endDate)}
+              </Text>
+              <TouchableOpacity
+                style={[styles.cancelSubscriptionButton, isCancelling && styles.subscribeButtonDisabled]}
+                onPress={handleCancelSubscription}
+                disabled={isCancelling}
+              >
+                {isCancelling ? (
+                  <ActivityIndicator color="#FFB4A8" />
+                ) : (
+                  <>
+                    <Ionicons name="close-circle-outline" size={18} color="#FFB4A8" />
+                    <Text style={styles.cancelSubscriptionButtonText}>Cancelar assinatura</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           <TouchableOpacity
-              style={[styles.subscribeButton, isLoading && styles.subscribeButtonDisabled]}
+              style={[styles.subscribeButton, shouldDisableCheckout && styles.subscribeButtonDisabled]}
               onPress={startCheckout}
-              disabled={isLoading}
+              disabled={shouldDisableCheckout}
             >
               {isLoading ? (
                 <ActivityIndicator color="#000" />
+              ) : activeSubscription ? (
+                <Text style={styles.subscribeButtonText}>Você já possui assinatura ativa</Text>
               ) : (
                 <Text style={styles.subscribeButtonText}>Assinar {clubInfo.titulo}</Text>
               )}
@@ -235,6 +394,58 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 40,
+  },
+  subscriptionStateBox: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  subscriptionStateText: {
+    color: '#CBB7E4',
+    fontSize: 13,
+  },
+  activeCard: {
+    backgroundColor: 'rgba(139, 195, 74, 0.16)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 195, 74, 0.5)',
+    padding: 14,
+    marginBottom: 16,
+    gap: 4,
+  },
+  activeCardTitle: {
+    color: '#D1F0A6',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  activeCardPlan: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  activeCardMeta: {
+    color: '#DDECC9',
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  cancelSubscriptionButton: {
+    borderWidth: 1,
+    borderColor: '#FF8A80',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cancelSubscriptionButtonText: {
+    color: '#FFB4A8',
+    fontSize: 14,
+    fontWeight: '600',
   },
   benefitsSection: {
     marginTop: 20,

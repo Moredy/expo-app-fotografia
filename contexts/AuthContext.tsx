@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useRef, ReactNode, useState, useCallback } from 'react';
 import { useUser, useSignIn, useSignUp, useAuth as useClerkAuth } from '@clerk/clerk-expo';
 
 interface User {
@@ -13,6 +13,9 @@ interface AuthContextData {
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
+  phoneSyncRequired: boolean;
+  isSyncingProfile: boolean;
+  submitPhoneForSync: (phone: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextData | undefined>(undefined);
@@ -26,6 +29,47 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const { signIn: clerkSignIn, isLoaded: signInLoaded } = useSignIn();
   const { signOut: clerkSignOut, getToken } = useClerkAuth();
   const syncedUserIdRef = useRef<string | null>(null);
+  const [phoneSyncRequired, setPhoneSyncRequired] = useState(false);
+  const [isSyncingProfile, setIsSyncingProfile] = useState(false);
+
+  const syncUser = useCallback(async (phoneOverride?: string): Promise<void> => {
+    if (!clerkUser) return;
+
+    const resolvedPhone = phoneOverride ?? clerkUser.primaryPhoneNumber?.phoneNumber ?? null;
+    if (!resolvedPhone) {
+      setPhoneSyncRequired(true);
+      return;
+    }
+
+    const token = await getToken({ skipCache: true });
+    if (!token) return;
+
+    const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
+    const response = await fetch(`${baseUrl}/users/me/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        email: clerkUser.primaryEmailAddress?.emailAddress ?? '',
+        name: clerkUser.fullName ?? clerkUser.firstName ?? 'Usuário',
+        phone: resolvedPhone,
+        avatar_url: clerkUser.imageUrl ?? null,
+      }),
+    });
+
+    if (!response.ok) {
+      const raw = await response.text();
+      const message = raw?.trim().length > 0
+        ? raw.trim()
+        : `Erro ${response.status}: ${response.statusText}`;
+      throw new Error(message);
+    }
+
+    setPhoneSyncRequired(false);
+    syncedUserIdRef.current = clerkUser.id;
+  }, [clerkUser, getToken]);
 
   // Sincroniza o usuário Clerk com o backend logo após o login.
   // Idempotente: o backend cria ou confirma o vínculo clerkId → User.
@@ -33,27 +77,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (!userLoaded || !clerkUser) return;
     if (syncedUserIdRef.current === clerkUser.id) return; // já sincronizou nesta sessão
 
-    const syncUser = async () => {
+    const syncUserOnLogin = async () => {
       try {
-        const token = await getToken({ skipCache: true });
-        if (!token) return;
-
-        const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
-        await fetch(`${baseUrl}/users/me/sync`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            email: clerkUser.primaryEmailAddress?.emailAddress ?? '',
-            name: clerkUser.fullName ?? clerkUser.firstName ?? 'Usuário',
-            phone: clerkUser.primaryPhoneNumber?.phoneNumber ?? null,
-            avatar_url: clerkUser.imageUrl ?? null,
-          }),
-        });
-
-        syncedUserIdRef.current = clerkUser.id;
+        await syncUser();
       } catch (err) {
         // Falha silenciosa — o sync será tentado novamente na próxima sessão
         const message = err instanceof Error ? err.message : String(err);
@@ -61,8 +87,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     };
 
-    syncUser();
-  }, [clerkUser?.id, userLoaded]);
+    void syncUserOnLogin();
+  }, [clerkUser?.id, userLoaded, syncUser]);
+
+  const submitPhoneForSync = useCallback(async (phone: string): Promise<{ success: boolean; error?: string }> => {
+    const normalizedPhone = phone.trim();
+    const digits = normalizedPhone.replace(/\D/g, '');
+
+    if (digits.length < 10) {
+      return { success: false, error: 'Informe um telefone válido com DDD.' };
+    }
+
+    setIsSyncingProfile(true);
+    try {
+      await syncUser(normalizedPhone);
+      return { success: true };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel sincronizar o telefone.';
+      return { success: false, error: message };
+    } finally {
+      setIsSyncingProfile(false);
+    }
+  }, [syncUser]);
 
   const signIn = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     if (!signInLoaded) {
@@ -92,6 +138,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const signOut = async (): Promise<void> => {
     try {
       await clerkSignOut();
+      setPhoneSyncRequired(false);
+      setIsSyncingProfile(false);
+      syncedUserIdRef.current = null;
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
     }
@@ -114,6 +163,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         signIn,
         signOut,
         isAuthenticated: !!clerkUser,
+        phoneSyncRequired,
+        isSyncingProfile,
+        submitPhoneForSync,
       }}
     >
       {children}

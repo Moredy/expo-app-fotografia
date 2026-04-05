@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -38,28 +38,44 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const cartCount = getCartCount();
   const { getToken } = useClerkAuth();
   const [eventos, setEventos] = useState<Evento[]>([]);
+  const getTokenRef = useRef(getToken);
 
   useEffect(() => {
-    getEvents(() => getToken({ skipCache: true }))
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getEvents(async () => {
+      const fresh = await getTokenRef.current({ skipCache: true });
+      return fresh ?? getTokenRef.current();
+    })
       .then((data: ApiEvent[]) =>
-        setEventos(
-          data.map((e) => ({
-            id: e.id,
-            titulo: e.title,
-            local: e.location,
-            data: new Date(e.eventDate).toLocaleDateString('pt-BR'),
-            dataRelativa: new Date(e.eventDate).toLocaleDateString('pt-BR', {
-              day: '2-digit',
-              month: 'short',
-            }),
-            imagem: (() => { const u = sanitizeCoverUrl(e.coverImageUrl); return u ? { uri: u } : require('../assets/fotos-mock/1.jpg'); })(),
-            totalFotos: e._count?.photos ?? 0,
-            favorito: e.isFeatured ?? false,
-          }))
-        )
+        cancelled
+          ? null
+          : setEventos(
+              data.map((e) => ({
+                id: e.id,
+                titulo: e.title,
+                local: e.location,
+                data: new Date(e.eventDate).toLocaleDateString('pt-BR'),
+                dataRelativa: new Date(e.eventDate).toLocaleDateString('pt-BR', {
+                  day: '2-digit',
+                  month: 'short',
+                }),
+                imagem: (() => { const u = sanitizeCoverUrl(e.coverImageUrl); return u ? { uri: u } : require('../assets/fotos-mock/1.jpg'); })(),
+                totalFotos: e._count?.photos ?? 0,
+                favorito: e.isFeatured ?? false,
+              }))
+            )
       )
       .catch(() => {});
-  }, [getToken]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const getGreeting = (): string => {
     const hour = new Date().getHours();

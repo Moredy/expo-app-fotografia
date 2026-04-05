@@ -170,3 +170,29 @@ export async function getUserSubscriptions(userId: string, getToken: GetToken): 
   });
   return handleResponse<ApiSubscription[]>(response);
 }
+
+/**
+ * Busca assinaturas do usuário autenticado.
+ */
+export async function getSubscriptions(getToken: GetToken): Promise<ApiSubscription[]> {
+  const response = await fetchWithTimeout(`${BASE_URL}/subscriptions`, {
+    method: 'GET',
+    headers: await resolveAuthHeaders(getToken),
+  });
+  return handleResponse<ApiSubscription[]>(response);
+}
+
+/**
+ * Cancela uma assinatura ativa.
+ */
+export async function cancelSubscription(subscriptionId: string, getToken: GetToken): Promise<void> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+    {
+      method: 'POST',
+      headers: await resolveAuthHeaders(getToken),
+    },
+  );
+
+  await handleResponse<unknown>(response);
+}

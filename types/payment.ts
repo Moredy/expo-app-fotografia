@@ -67,7 +67,10 @@ export interface ApiSubscription {
   status: string;
   planName: string;
   interval: 'month' | 'year';
-  currentPeriodEnd: string;
+  currentPeriodEnd?: string;
+  nextBillingDate?: string;
+  endDate?: string | null;
+  cancelledAt?: string | null;
 }
 
 // ─── Eventos ──────────────────────────────────────────────────────────────────

@@ -30,9 +30,6 @@ export default function MenuScreen({ navigation }: MenuScreenProps) {
     { icon: 'person-outline', title: 'Perfil', screen: 'Profile' },
     { icon: 'images-outline', title: 'Galeria', screen: 'Galeria' },
     { icon: 'receipt-outline', title: 'Meus Pedidos', screen: 'Pedidos' },
-    { icon: 'settings-outline', title: 'Configurações' },
-    { icon: 'help-circle-outline', title: 'Ajuda e Suporte' },
-    { icon: 'information-circle-outline', title: 'Sobre o App' },
   ];
 
   return (

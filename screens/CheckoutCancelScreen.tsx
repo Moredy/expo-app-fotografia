@@ -20,21 +20,35 @@ export default function CheckoutCancelScreen({ navigation, route }: Props) {
   const { refreshOrders } = useOrders();
   const [isSyncing, setIsSyncing] = React.useState<boolean>(Boolean(orderId));
   const [syncMessage, setSyncMessage] = React.useState<string>('');
+  const getTokenRef = React.useRef(getToken);
+  const syncedOrderIdRef = React.useRef<string | undefined>(undefined);
+
+  React.useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
 
   React.useEffect(() => {
     if (!orderId) {
       setIsSyncing(false);
       setSyncMessage('');
+      syncedOrderIdRef.current = undefined;
       return;
     }
+
+    if (syncedOrderIdRef.current === orderId) {
+      setIsSyncing(false);
+      return;
+    }
+
+    syncedOrderIdRef.current = orderId;
 
     let cancelled = false;
 
     const syncCancelledOrder = async () => {
       try {
         await cancelOrderCheckout(orderId, async () => {
-          const fresh = await getToken({ skipCache: true });
-          return fresh ?? getToken();
+          const fresh = await getTokenRef.current({ skipCache: true });
+          return fresh ?? getTokenRef.current();
         });
 
         await refreshOrders();
@@ -52,7 +66,7 @@ export default function CheckoutCancelScreen({ navigation, route }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [orderId, getToken, refreshOrders]);
+  }, [orderId, refreshOrders]);
 
   function handleGoBack() {
     if (navigation.canGoBack()) {
