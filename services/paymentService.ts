@@ -75,6 +75,35 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 type GetToken = () => Promise<string | null>;
+function normalizeCheckoutResponse<T extends { checkoutUrl?: string; orderId?: string }>(
+  response: any,
+): T {
+  const data = response?.data && typeof response.data === 'object' ? response.data : null;
+
+  const checkoutUrl =
+    response?.checkoutUrl ??
+    response?.paymentUrl ??
+    response?.billingUrl ??
+    response?.redirectUrl ??
+    response?.url ??
+    data?.checkoutUrl ??
+    data?.paymentUrl ??
+    data?.billingUrl ??
+    data?.redirectUrl ??
+    data?.url;
+
+  const orderId = response?.orderId ?? response?.externalId ?? response?.id ?? data?.orderId ?? data?.externalId;
+
+  if (!checkoutUrl || typeof checkoutUrl !== 'string') {
+    throw new Error('Resposta de checkout invalida: URL de pagamento ausente.');
+  }
+
+  return {
+    ...response,
+    checkoutUrl,
+    orderId,
+  } as T;
+}
 
 // ─── Helpers de header ────────────────────────────────────────────────────────
 
@@ -91,7 +120,7 @@ async function resolveAuthHeaders(getToken: GetToken): Promise<Record<string, st
 
 /**
  * Cria uma sessão de checkout para compra avulsa de fotos.
- * Retorna a URL do Stripe Hosted Checkout para redirecionamento.
+ * Retorna a URL de checkout do provedor de pagamento para redirecionamento.
  */
 export async function createOrderCheckout(
   payload: CreateOrderCheckoutRequest,
@@ -102,12 +131,13 @@ export async function createOrderCheckout(
     headers: await resolveAuthHeaders(getToken),
     body: JSON.stringify({ currency: 'brl', ...payload }),
   });
-  return handleResponse<CreateOrderCheckoutResponse>(response);
+  const raw = await handleResponse<any>(response);
+  return normalizeCheckoutResponse<CreateOrderCheckoutResponse>(raw);
 }
 
 /**
  * Cria uma sessão de checkout para assinatura mensal ou anual.
- * Retorna a URL do Stripe Hosted Checkout para redirecionamento.
+ * Retorna a URL de checkout do provedor de pagamento para redirecionamento.
  */
 export async function createSubscriptionCheckout(
   payload: CreateSubscriptionCheckoutRequest,
@@ -118,7 +148,8 @@ export async function createSubscriptionCheckout(
     headers: await resolveAuthHeaders(getToken),
     body: JSON.stringify({ currency: 'brl', ...payload }),
   });
-  return handleResponse<CreateSubscriptionCheckoutResponse>(response);
+  const raw = await handleResponse<any>(response);
+  return normalizeCheckoutResponse<CreateSubscriptionCheckoutResponse>(raw);
 }
 
 /**

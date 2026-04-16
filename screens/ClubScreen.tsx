@@ -230,7 +230,7 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
               <Text style={styles.activeCardTitle}>Assinatura ativa</Text>
               <Text style={styles.activeCardPlan}>{activeSubscription.planName}</Text>
               <Text style={styles.activeCardMeta}>
-                Renova em: {formatDate(activeSubscription.currentPeriodEnd ?? activeSubscription.nextBillingDate ?? activeSubscription.endDate)}
+                Expira em: {formatDate(activeSubscription.currentPeriodEnd ?? activeSubscription.nextBillingDate ?? activeSubscription.endDate)}
               </Text>
               <TouchableOpacity
                 style={[styles.cancelSubscriptionButton, isCancelling && styles.subscribeButtonDisabled]}

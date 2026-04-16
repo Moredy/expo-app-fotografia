@@ -5,6 +5,7 @@ interface User {
   id: string;
   email: string;
   name: string;
+  abacateCustomerId?: string | null;
 }
 
 interface AuthContextData {
@@ -15,7 +16,7 @@ interface AuthContextData {
   isAuthenticated: boolean;
   phoneSyncRequired: boolean;
   isSyncingProfile: boolean;
-  submitPhoneForSync: (phone: string) => Promise<{ success: boolean; error?: string }>;
+  submitPhoneForSync: (phone: string, taxId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextData | undefined>(undefined);
@@ -32,11 +33,70 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [phoneSyncRequired, setPhoneSyncRequired] = useState(false);
   const [isSyncingProfile, setIsSyncingProfile] = useState(false);
 
-  const syncUser = useCallback(async (phoneOverride?: string): Promise<void> => {
+  const parseSyncErrorMessage = (raw: string, fallback: string): string => {
+    if (!raw || raw.trim().length === 0) return fallback;
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.message === 'string' && parsed.message.trim().length > 0) {
+        const normalized = parsed.message.toLowerCase();
+        if (normalized.includes("expected property 'taxid'")) {
+          return 'CPF/CNPJ obrigatório. Informe seu documento para concluir o cadastro.';
+        }
+        return parsed.message;
+      }
+      if (typeof parsed?.error === 'string' && parsed.error.trim().length > 0) {
+        return parsed.error;
+      }
+    } catch {
+      // resposta não é JSON
+    }
+
+    return raw.trim();
+  };
+
+  const syncUser = useCallback(async (phoneOverride?: string, taxIdOverride?: string): Promise<void> => {
     if (!clerkUser) return;
 
-    const resolvedPhone = phoneOverride ?? clerkUser.primaryPhoneNumber?.phoneNumber ?? null;
-    if (!resolvedPhone) {
+    const metadata = {
+      ...(clerkUser.publicMetadata as Record<string, unknown>),
+      ...(clerkUser.unsafeMetadata as Record<string, unknown>),
+    };
+    const metadataCustomerId =
+      typeof metadata.abacateCustomerId === 'string' ? metadata.abacateCustomerId.trim() : '';
+    if (metadataCustomerId.length > 0) {
+      setPhoneSyncRequired(false);
+      syncedUserIdRef.current = clerkUser.id;
+      return;
+    }
+
+    const metadataPhone =
+      typeof metadata.phone === 'string'
+        ? metadata.phone
+        : typeof metadata.phoneNumber === 'string'
+          ? metadata.phoneNumber
+          : null;
+
+    const rawPhone = phoneOverride ?? clerkUser.primaryPhoneNumber?.phoneNumber ?? metadataPhone ?? null;
+    const metadataTaxId =
+      typeof metadata.taxId === 'string'
+        ? metadata.taxId
+        : typeof metadata.cpfCnpj === 'string'
+          ? metadata.cpfCnpj
+          : typeof metadata.document === 'string'
+            ? metadata.document
+            : null;
+
+    const rawTaxId = taxIdOverride?.trim() || metadataTaxId || null;
+    const resolvedPhone = rawPhone ? String(rawPhone).replace(/\D/g, '') : null;
+    const resolvedTaxId = rawTaxId ? String(rawTaxId).replace(/\D/g, '') : null;
+
+    if (!resolvedPhone || resolvedPhone.length < 10) {
+      setPhoneSyncRequired(true);
+      return;
+    }
+
+    if (!resolvedTaxId || (resolvedTaxId.length !== 11 && resolvedTaxId.length !== 14)) {
       setPhoneSyncRequired(true);
       return;
     }
@@ -55,16 +115,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         email: clerkUser.primaryEmailAddress?.emailAddress ?? '',
         name: clerkUser.fullName ?? clerkUser.firstName ?? 'Usuário',
         phone: resolvedPhone,
+        taxId: resolvedTaxId,
+        document: resolvedTaxId,
+        cpfCnpj: resolvedTaxId,
         avatar_url: clerkUser.imageUrl ?? null,
       }),
     });
 
     if (!response.ok) {
       const raw = await response.text();
-      const message = raw?.trim().length > 0
-        ? raw.trim()
-        : `Erro ${response.status}: ${response.statusText}`;
+      const message = parseSyncErrorMessage(raw, `Erro ${response.status}: ${response.statusText}`);
       throw new Error(message);
+    }
+
+    // Persiste dados para evitar solicitar CPF/telefone novamente no próximo boot.
+    try {
+      await clerkUser.update({
+        unsafeMetadata: {
+          ...(clerkUser.unsafeMetadata as Record<string, unknown>),
+          taxId: resolvedTaxId,
+          cpfCnpj: resolvedTaxId,
+          phone: resolvedPhone,
+        },
+      });
+    } catch {
+      // Se não conseguir persistir metadata, não bloqueia fluxo de login.
     }
 
     setPhoneSyncRequired(false);
@@ -90,20 +165,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     void syncUserOnLogin();
   }, [clerkUser?.id, userLoaded, syncUser]);
 
-  const submitPhoneForSync = useCallback(async (phone: string): Promise<{ success: boolean; error?: string }> => {
-    const normalizedPhone = phone.trim();
-    const digits = normalizedPhone.replace(/\D/g, '');
+  const submitPhoneForSync = useCallback(async (phone: string, taxId: string): Promise<{ success: boolean; error?: string }> => {
+    const phoneDigits = phone.trim().replace(/\D/g, '');
+    const taxIdDigits = taxId.trim().replace(/\D/g, '');
 
-    if (digits.length < 10) {
+    if (phoneDigits.length < 10) {
       return { success: false, error: 'Informe um telefone válido com DDD.' };
+    }
+
+    if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
+      return { success: false, error: 'Informe um CPF/CNPJ valido.' };
     }
 
     setIsSyncingProfile(true);
     try {
-      await syncUser(normalizedPhone);
+      await syncUser(phoneDigits, taxIdDigits);
       return { success: true };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Nao foi possivel sincronizar o telefone.';
+      const message = error instanceof Error ? error.message : 'Nao foi possivel sincronizar seu cadastro.';
       return { success: false, error: message };
     } finally {
       setIsSyncingProfile(false);
@@ -147,11 +226,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   // Mapear usuário do Clerk para o formato esperado
+  const metadata = (clerkUser?.publicMetadata ?? {}) as Record<string, unknown>;
+  const abacateCustomerId =
+    typeof metadata.abacateCustomerId === 'string' ? metadata.abacateCustomerId : null;
+
   const user: User | null = clerkUser
     ? {
         id: clerkUser.id,
         email: clerkUser.primaryEmailAddress?.emailAddress || '',
         name: clerkUser.fullName || clerkUser.firstName || 'Usuário',
+        abacateCustomerId,
       }
     : null;
 

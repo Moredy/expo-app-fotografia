@@ -197,15 +197,22 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
     switch (normalizedStatus) {
       case 'paid':
       case 'pago':
+      case 'approved':
+      case 'completed':
       case 'entregue':
       case 'delivered':
         return '#34C759';
       case 'processando':
       case 'processing':
       case 'pending':
+      case 'created':
+      case 'waiting_payment':
         return '#FF9500';
       case 'cancelado':
       case 'cancelled':
+      case 'canceled':
+      case 'failed':
+      case 'expired':
         return '#FF3B30';
       default:
         return '#8E8E93';
@@ -222,13 +229,22 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
       case 'processando':
       case 'processing':
       case 'pending':
+      case 'created':
+      case 'waiting_payment':
         return 'Processando';
       case 'paid':
       case 'pago':
+      case 'approved':
+      case 'completed':
         return 'Pago';
       case 'cancelado':
       case 'cancelled':
+      case 'canceled':
         return 'Cancelado';
+      case 'failed':
+        return 'Falhou';
+      case 'expired':
+        return 'Expirado';
       default:
         return status;
     }

@@ -117,14 +117,16 @@ export default function Navigation() {
     isSyncingProfile,
   } = useAuth();
   const [phoneInput, setPhoneInput] = React.useState('');
+  const [taxIdInput, setTaxIdInput] = React.useState('');
 
   const handleSubmitPhone = async () => {
-    const result = await submitPhoneForSync(phoneInput);
+    const result = await submitPhoneForSync(phoneInput, taxIdInput);
     if (!result.success) {
-      Alert.alert('Telefone inválido', result.error ?? 'Nao foi possivel salvar seu telefone.');
+      Alert.alert('Dados inválidos', result.error ?? 'Nao foi possivel salvar seus dados.');
       return;
     }
     setPhoneInput('');
+    setTaxIdInput('');
   };
 
   return (
@@ -191,9 +193,9 @@ export default function Navigation() {
         <Modal visible={isAuthenticated && phoneSyncRequired} transparent animationType="fade">
           <View style={styles.phoneModalBackdrop}>
             <View style={styles.phoneModalCard}>
-              <Text style={styles.phoneModalTitle}>Telefone obrigatório</Text>
+              <Text style={styles.phoneModalTitle}>Complete seu cadastro</Text>
               <Text style={styles.phoneModalText}>
-                Para concluir seu cadastro no sistema, informe seu telefone com DDD.
+                Para concluir seu cadastro no sistema, informe seu telefone e CPF/CNPJ.
               </Text>
 
               <TextInput
@@ -203,6 +205,16 @@ export default function Navigation() {
                 placeholder="Ex: (11) 99999-9999"
                 placeholderTextColor="#9F8ABF"
                 keyboardType="phone-pad"
+                editable={!isSyncingProfile}
+              />
+
+              <TextInput
+                style={styles.phoneInput}
+                value={taxIdInput}
+                onChangeText={setTaxIdInput}
+                placeholder="CPF/CNPJ"
+                placeholderTextColor="#9F8ABF"
+                keyboardType="number-pad"
                 editable={!isSyncingProfile}
               />
 

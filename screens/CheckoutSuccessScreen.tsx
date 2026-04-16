@@ -157,7 +157,7 @@ export default function CheckoutSuccessScreen({ navigation, route }: Props) {
               value={activeSubscription.interval === 'month' ? 'Mensal' : 'Anual'}
             />
             {activeSubscription.currentPeriodEnd && (
-              <Row label="Renova em" value={formatDate(activeSubscription.currentPeriodEnd)} />
+              <Row label="Expira em" value={formatDate(activeSubscription.currentPeriodEnd)} />
             )}
           </View>
         )}
@@ -210,11 +210,17 @@ function formatOrderStatus(status: string): string {
   const normalizedStatus = status.trim().toLowerCase();
   const map: Record<string, string> = {
     pending: 'Pendente',
+    waiting_payment: 'Pendente',
+    created: 'Pendente',
     paid: 'Pago',
+    approved: 'Pago',
     completed: 'Pago',
     processing: 'Processando',
     delivered: 'Entregue',
     cancelled: 'Cancelado',
+    canceled: 'Cancelado',
+    failed: 'Falhou',
+    expired: 'Expirado',
     // compatibilidade com valores em português (mock)
     processando: 'Processando',
     entregue: 'Entregue',
@@ -224,14 +230,18 @@ function formatOrderStatus(status: string): string {
 }
 
 function formatSubStatus(status: string): string {
+  const normalizedStatus = status.trim().toLowerCase();
   const map: Record<string, string> = {
     active: 'Ativa',
     inactive: 'Inativa',
     cancelled: 'Cancelada',
+    canceled: 'Cancelada',
     trialing: 'Em período de teste',
     past_due: 'Pagamento vencido',
+    failed: 'Falhou',
+    expired: 'Expirada',
   };
-  return map[status] ?? status;
+  return map[normalizedStatus] ?? status;
 }
 
 function resolveOrderTotal(order: ApiOrder): number {

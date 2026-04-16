@@ -153,7 +153,7 @@ Todas as telas principais requerem autenticação. Usuários não autenticados v
 Para um app em produção, considere adicionar:
 
 - [ ] Integração com API real (backend)
-- [ ] Processamento de pagamentos (Stripe, MercadoPago)
+- [ ] Processamento de pagamentos (AbacatePay)
 - [ ] Upload de fotos por fotógrafos
 - [ ] Sistema de notificações
 - [ ] Compartilhamento social

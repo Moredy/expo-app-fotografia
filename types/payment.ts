@@ -13,8 +13,7 @@ export interface CreateOrderCheckoutRequest {
 }
 
 export interface CreateOrderCheckoutResponse {
-  orderId: string;
-  sessionId: string;
+  orderId?: string;
   checkoutUrl: string;
 }
 
@@ -31,7 +30,6 @@ export interface CreateSubscriptionCheckoutRequest {
 }
 
 export interface CreateSubscriptionCheckoutResponse {
-  sessionId: string;
   checkoutUrl: string;
 }
 
