@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import * as AuthSession from 'expo-auth-session';
 
 import { CheckoutState, ApiSubscription } from '../types/payment';
 import {
@@ -23,15 +23,18 @@ interface UseOrderCheckoutOptions extends CheckoutCallbacks {
 }
 
 interface UseSubscriptionCheckoutOptions extends CheckoutCallbacks {
+  quantity?: number;
   planName: string;
   price: number;
-  interval: 'month' | 'year';
+  interval: 'month';
 }
 
 type GetToken = () => Promise<string | null>;
 
 const SUBSCRIPTION_POLL_ATTEMPTS = 8;
 const SUBSCRIPTION_POLL_INTERVAL_MS = 1500;
+const CHECKOUT_DEEP_LINK_TIMEOUT_MS = 15 * 60 * 1000;
+const CHECKOUT_RETURN_SETTLE_MS = 1200;
 const CONFIRMED_SUBSCRIPTION_STATUSES = ['active', 'paid', 'approved', 'success', 'succeeded', 'completed'];
 
 export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderCheckoutOptions) {
@@ -69,7 +72,7 @@ export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderChec
     inFlightRef.current = true;
 
     try {
-      const { successUrl, cancelUrl, redirectPrefix } = resolveCheckoutReturnUrls();
+      const { successUrl, cancelUrl, appSuccessUrl, appCancelUrl } = resolveCheckoutReturnUrls();
 
       const { checkoutUrl, orderId } = await createOrderCheckout(
         {
@@ -81,14 +84,22 @@ export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderChec
         getCheckoutToken,
       );
 
-      const result = await WebBrowser.openAuthSessionAsync(checkoutUrl, redirectPrefix);
+      const checkoutReturnUrlPromise = waitForCheckoutReturnSignal(
+        appSuccessUrl,
+        appCancelUrl,
+        CHECKOUT_DEEP_LINK_TIMEOUT_MS,
+      );
 
-      if (result.type === 'success' && isSuccessfulCheckoutReturnUrl(result.url)) {
+      // Nao bloqueia no fechamento do navegador; esperamos callback ou retorno manual ao app.
+      void WebBrowser.openBrowserAsync(checkoutUrl);
+      const returnUrl = await checkoutReturnUrlPromise;
+
+      if (returnUrl && isSuccessfulCheckoutReturnUrl(returnUrl)) {
         setState('success');
         onSuccess?.();
-      } else if (result.type === 'success' && isCanceledCheckoutReturnUrl(result.url)) {
+      } else if (returnUrl && isCanceledCheckoutReturnUrl(returnUrl)) {
         setState('idle');
-        const canceledOrderId = extractOrderIdFromUrl(result.url) ?? orderId;
+        const canceledOrderId = extractOrderIdFromUrl(returnUrl) ?? orderId;
         onCancel?.(canceledOrderId);
       } else {
         // Fechou o navegador (X/back) ou retorno não conclusivo: apenas volta ao app.
@@ -112,6 +123,7 @@ export function useOrderCheckout({ photoIds, onSuccess, onCancel }: UseOrderChec
 }
 
 export function useSubscriptionCheckout({
+  quantity = 1,
   planName,
   price,
   interval,
@@ -146,23 +158,32 @@ export function useSubscriptionCheckout({
     inFlightRef.current = true;
 
     try {
-      const { successUrl, cancelUrl, redirectPrefix } = resolveCheckoutReturnUrls();
+      const appSuccessUrl = resolveSubscriptionReturnUrl('success');
+      const appCancelUrl = resolveSubscriptionReturnUrl('cancel');
 
       const { checkoutUrl } = await createSubscriptionCheckout(
         {
-          userId: user.id,
-          planName,
-          price,
+          successUrl: appSuccessUrl,
+          cancelUrl: appCancelUrl,
           interval,
-          successUrl,
-          cancelUrl,
+          quantity,
+          planName,
+          price: String(price),
         },
         getCheckoutToken,
       );
 
-      const result = await WebBrowser.openAuthSessionAsync(checkoutUrl, redirectPrefix);
+      const checkoutReturnUrlPromise = waitForCheckoutReturnSignal(
+        appSuccessUrl,
+        appCancelUrl,
+        CHECKOUT_DEEP_LINK_TIMEOUT_MS,
+      );
 
-      if (result.type === 'success' && isSuccessfulCheckoutReturnUrl(result.url)) {
+      // Nao bloqueia no fechamento do navegador; esperamos callback ou retorno manual ao app.
+      void WebBrowser.openBrowserAsync(checkoutUrl);
+      const returnUrl = await checkoutReturnUrlPromise;
+
+      if (returnUrl && isSuccessfulCheckoutReturnUrl(returnUrl)) {
         const isConfirmed = await waitForSubscriptionConfirmation(user.id, getCheckoutToken);
         if (isConfirmed) {
           setState('success');
@@ -171,7 +192,7 @@ export function useSubscriptionCheckout({
           setError('Pagamento confirmado, mas a assinatura ainda está pendente. Tente novamente em instantes.');
           setState('error');
         }
-      } else if (result.type === 'success' && isCanceledCheckoutReturnUrl(result.url)) {
+      } else if (returnUrl && isCanceledCheckoutReturnUrl(returnUrl)) {
         setState('idle');
         onCancel?.();
       } else {
@@ -191,7 +212,7 @@ export function useSubscriptionCheckout({
     } finally {
       inFlightRef.current = false;
     }
-  }, [user, planName, price, interval, onSuccess, onCancel, getCheckoutToken]);
+  }, [user, quantity, planName, price, interval, onSuccess, onCancel, getCheckoutToken]);
 
   const resetState = useCallback(() => {
     setState('idle');
@@ -223,7 +244,8 @@ function extractOrderIdFromUrl(url: string): string | undefined {
 function resolveCheckoutReturnUrls(): {
   successUrl: string;
   cancelUrl: string;
-  redirectPrefix: string;
+  appSuccessUrl: string;
+  appCancelUrl: string;
 } {
   const configuredSuccess = process.env.EXPO_PUBLIC_CHECKOUT_SUCCESS_URL?.trim();
   const configuredCancel = process.env.EXPO_PUBLIC_CHECKOUT_CANCEL_URL?.trim();
@@ -233,10 +255,8 @@ function resolveCheckoutReturnUrls(): {
   const returnPath =
     (process.env.EXPO_PUBLIC_CHECKOUT_RETURN_PATH?.trim() || '/payments/abacate/return').replace(/\s+/g, '');
 
-  const appSuccessUrl =
-    AuthSession.makeRedirectUri({ path: 'checkout/success' }) || Linking.createURL('checkout/success');
-  const appCancelUrl =
-    AuthSession.makeRedirectUri({ path: 'checkout/cancel' }) || Linking.createURL('checkout/cancel');
+  const appSuccessUrl = Linking.createURL('checkout/success');
+  const appCancelUrl = Linking.createURL('checkout/cancel');
 
   const successUrl =
     configuredSuccess && isHttpUrl(configuredSuccess)
@@ -254,8 +274,18 @@ function resolveCheckoutReturnUrls(): {
     );
   }
 
-  const redirectPrefix = getCommonPrefix(appSuccessUrl, appCancelUrl);
-  return { successUrl, cancelUrl, redirectPrefix };
+  return { successUrl, cancelUrl, appSuccessUrl, appCancelUrl };
+}
+
+function resolveSubscriptionReturnUrl(type: 'success' | 'cancel'): string {
+  const configuredUrl =
+    type === 'success'
+      ? process.env.EXPO_PUBLIC_CHECKOUT_SUCCESS_URL?.trim()
+      : process.env.EXPO_PUBLIC_CHECKOUT_CANCEL_URL?.trim();
+
+  if (configuredUrl) return configuredUrl;
+
+  return Linking.createURL(type === 'success' ? 'checkout/success' : 'checkout/cancel');
 }
 
 function buildBackendReturnUrl(
@@ -277,15 +307,72 @@ function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
-function getCommonPrefix(firstUrl: string, secondUrl: string): string {
-  const minLength = Math.min(firstUrl.length, secondUrl.length);
-  let index = 0;
+function waitForCheckoutReturnSignal(
+  appSuccessUrl: string,
+  appCancelUrl: string,
+  timeoutMs: number,
+): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let appWasBackgrounded = false;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
-  while (index < minLength && firstUrl[index] === secondUrl[index]) {
-    index += 1;
+    const finish = (url?: string) => {
+      if (settled) return;
+      settled = true;
+      urlSubscription.remove();
+      appStateSubscription.remove();
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
+      clearTimeout(timeoutId);
+      resolve(url);
+    };
+
+    const urlSubscription = Linking.addEventListener('url', ({ url }) => {
+      if (!isExpectedCheckoutReturnUrl(url, appSuccessUrl, appCancelUrl)) {
+        return;
+      }
+      finish(url);
+    });
+
+    const appStateSubscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState !== 'active') {
+        appWasBackgrounded = true;
+        return;
+      }
+
+      if (!appWasBackgrounded) {
+        return;
+      }
+
+      // Ao voltar para o app sem deep link, libera o fluxo para fallback no backend.
+      settleTimer = setTimeout(() => {
+        finish(undefined);
+      }, CHECKOUT_RETURN_SETTLE_MS);
+    });
+
+    const timeoutId = setTimeout(() => {
+      finish(undefined);
+    }, timeoutMs);
+  });
+}
+
+function isExpectedCheckoutReturnUrl(url: string, appSuccessUrl: string, appCancelUrl: string): boolean {
+  const normalizedUrl = normalizeUrlForMatch(url);
+  const successPrefix = normalizeUrlForMatch(appSuccessUrl);
+  const cancelPrefix = normalizeUrlForMatch(appCancelUrl);
+
+  if (normalizedUrl.startsWith(successPrefix) || normalizedUrl.startsWith(cancelPrefix)) {
+    return true;
   }
 
-  return firstUrl.slice(0, index) || firstUrl;
+  return isSuccessfulCheckoutReturnUrl(url) || isCanceledCheckoutReturnUrl(url);
+}
+
+function normalizeUrlForMatch(url: string): string {
+  return url.trim().replace(/\/+$/, '').toLowerCase();
 }
 
 function isSuccessfulCheckoutReturnUrl(url: string): boolean {

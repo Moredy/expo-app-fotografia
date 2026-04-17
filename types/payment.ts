@@ -20,13 +20,12 @@ export interface CreateOrderCheckoutResponse {
 // ─── Assinatura ───────────────────────────────────────────────────────────────
 
 export interface CreateSubscriptionCheckoutRequest {
-  userId: string;
+  quantity: number;
   planName: string;
-  price: number | string;
-  interval: 'month' | 'year';
+  price: string;
+  interval: 'month';
   successUrl: string;
   cancelUrl: string;
-  currency?: string; // default: 'brl'
 }
 
 export interface CreateSubscriptionCheckoutResponse {
@@ -64,7 +63,7 @@ export interface ApiSubscription {
   userId: string;
   status: string;
   planName: string;
-  interval: 'month' | 'year';
+  interval: 'month';
   currentPeriodEnd?: string;
   nextBillingDate?: string;
   endDate?: string | null;

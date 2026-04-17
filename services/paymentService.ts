@@ -136,7 +136,7 @@ export async function createOrderCheckout(
 }
 
 /**
- * Cria uma sessão de checkout para assinatura mensal ou anual.
+ * Cria uma sessão de checkout para assinatura mensal.
  * Retorna a URL de checkout do provedor de pagamento para redirecionamento.
  */
 export async function createSubscriptionCheckout(
@@ -146,7 +146,10 @@ export async function createSubscriptionCheckout(
   const response = await fetchWithTimeout(`${BASE_URL}/payments/checkout/subscription`, {
     method: 'POST',
     headers: await resolveAuthHeaders(getToken),
-    body: JSON.stringify({ currency: 'brl', ...payload }),
+    body: JSON.stringify({
+      successUrl: payload.successUrl,
+      cancelUrl: payload.cancelUrl,
+    }),
   });
   const raw = await handleResponse<any>(response);
   return normalizeCheckoutResponse<CreateSubscriptionCheckoutResponse>(raw);

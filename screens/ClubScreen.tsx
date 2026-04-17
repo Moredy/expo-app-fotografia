@@ -37,6 +37,7 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
 
   const { state: checkoutState, error: checkoutError, startCheckout } = useSubscriptionCheckout({
+    quantity: 1,
     planName: clubInfo.titulo,
     price: clubInfo.preco,
     interval: 'month',

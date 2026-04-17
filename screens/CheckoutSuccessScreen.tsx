@@ -152,10 +152,7 @@ export default function CheckoutSuccessScreen({ navigation, route }: Props) {
             <Text style={styles.cardTitle}>Assinatura</Text>
             <Row label="Plano" value={activeSubscription.planName} />
             <Row label="Status" value={formatSubStatus(activeSubscription.status)} />
-            <Row
-              label="Ciclo"
-              value={activeSubscription.interval === 'month' ? 'Mensal' : 'Anual'}
-            />
+            <Row label="Ciclo" value="Mensal" />
             {activeSubscription.currentPeriodEnd && (
               <Row label="Expira em" value={formatDate(activeSubscription.currentPeriodEnd)} />
             )}
