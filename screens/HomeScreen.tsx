@@ -32,6 +32,25 @@ function sanitizeCoverUrl(url: string | null): string | null {
   return url;
 }
 
+function mapApiEventToEvento(e: ApiEvent): Evento {
+  return {
+    id: e.id,
+    titulo: e.title,
+    local: e.location,
+    data: new Date(e.eventDate).toLocaleDateString('pt-BR'),
+    dataRelativa: new Date(e.eventDate).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'short',
+    }),
+    imagem: (() => {
+      const u = sanitizeCoverUrl(e.coverImageUrl);
+      return u ? { uri: u } : require('../assets/fotos-mock/1.jpg');
+    })(),
+    totalFotos: e._count?.photos ?? 0,
+    favorito: false,
+  };
+}
+
 export default function HomeScreen({ navigation }: HomeScreenProps) {
   const { user } = useAuth();
   const { getCartCount } = useCart();
@@ -51,25 +70,10 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       const fresh = await getTokenRef.current({ skipCache: true });
       return fresh ?? getTokenRef.current();
     })
-      .then((data: ApiEvent[]) =>
-        cancelled
-          ? null
-          : setEventos(
-              data.map((e) => ({
-                id: e.id,
-                titulo: e.title,
-                local: e.location,
-                data: new Date(e.eventDate).toLocaleDateString('pt-BR'),
-                dataRelativa: new Date(e.eventDate).toLocaleDateString('pt-BR', {
-                  day: '2-digit',
-                  month: 'short',
-                }),
-                imagem: (() => { const u = sanitizeCoverUrl(e.coverImageUrl); return u ? { uri: u } : require('../assets/fotos-mock/1.jpg'); })(),
-                totalFotos: e._count?.photos ?? 0,
-                favorito: e.isFeatured ?? false,
-              }))
-            )
-      )
+      .then((data: ApiEvent[]) => {
+        if (cancelled) return;
+        setEventos(data.map((event) => mapApiEventToEvento(event)));
+      })
       .catch(() => {});
 
     return () => {
@@ -159,11 +163,6 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
                 onPress={() => navigation.navigate('EventoDetalhes', { evento })}
               >
                 <Image source={evento.imagem} style={styles.eventImage} />
-                {evento.favorito && (
-                  <View style={styles.favoriteIcon}>
-                    <Ionicons name="heart" size={20} color="#FF3B30" />
-                  </View>
-                )}
                 <View style={styles.eventInfo}>
                   <Text style={styles.eventTitle} numberOfLines={2}>
                     {evento.titulo}

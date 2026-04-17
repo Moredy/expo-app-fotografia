@@ -48,6 +48,13 @@ interface AuthorizePhotoDownloadResponse {
   downloadUrl?: string;
 }
 
+interface RawFavoriteEventItem {
+  eventId?: string;
+  event?: {
+    id?: string;
+  };
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
@@ -178,6 +185,60 @@ export async function getEventById(id: string, getToken: GetToken): Promise<ApiE
     headers: await authHeaders(getToken),
   });
   return handleResponse<ApiEvent>(response);
+}
+
+// ─── Favoritos de evento ─────────────────────────────────────────────────────
+
+function normalizeFavoriteEventIds(payload: unknown): string[] {
+  const items = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown[] }).items)
+      ? (payload as { items: unknown[] }).items
+      : payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown[] }).data)
+        ? (payload as { data: unknown[] }).data
+        : [];
+
+  const ids = items
+    .map((item) => {
+      const raw = item as RawFavoriteEventItem;
+      return raw.eventId ?? raw.event?.id ?? null;
+    })
+    .filter((value): value is string => Boolean(value && value.trim()));
+
+  return [...new Set(ids)];
+}
+
+export async function getFavoriteEventIds(getToken: GetToken): Promise<string[]> {
+  const response = await fetchWithTimeout(`${BASE_URL}/favorites/events`, {
+    method: 'GET',
+    headers: await authHeaders(getToken),
+  });
+
+  const payload = await handleResponse<unknown>(response);
+  return normalizeFavoriteEventIds(payload);
+}
+
+export async function addEventFavorite(eventId: string, getToken: GetToken): Promise<'added' | 'already-favorited'> {
+  const response = await fetchWithTimeout(`${BASE_URL}/favorites/events`, {
+    method: 'POST',
+    headers: await authHeaders(getToken),
+    body: JSON.stringify({ eventId }),
+  });
+
+  if (response.status === 409) return 'already-favorited';
+  await handleResponse<unknown>(response);
+  return 'added';
+}
+
+export async function removeEventFavorite(eventId: string, getToken: GetToken): Promise<'removed' | 'already-removed'> {
+  const response = await fetchWithTimeout(`${BASE_URL}/favorites/events/${encodeURIComponent(eventId)}`, {
+    method: 'DELETE',
+    headers: await authHeaders(getToken),
+  });
+
+  if (response.status === 404) return 'already-removed';
+  await handleResponse<unknown>(response);
+  return 'removed';
 }
 
 // ─── Fotos do evento ──────────────────────────────────────────────────────────

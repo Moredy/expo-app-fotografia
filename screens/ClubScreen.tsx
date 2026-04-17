@@ -179,7 +179,7 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
         style={styles.closeButton}
         onPress={() => navigation.goBack()}
       >
-        <Ionicons name="close" size={32} color="#fff" />
+        <Ionicons name="close" size={26} color="#fff" />
       </TouchableOpacity>
 
       <ScrollView>
@@ -297,13 +297,13 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     position: 'absolute',
-    top: 10,
-    left: 20,
+    top: 30,
+    left: 14,
     zIndex: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 25,
-    width: 50,
-    height: 50,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },

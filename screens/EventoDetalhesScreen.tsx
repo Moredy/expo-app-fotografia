@@ -181,9 +181,6 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
               <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
             <View style={styles.topIcons}>
-              <TouchableOpacity style={styles.iconButton}>
-                <Ionicons name="heart-outline" size={24} color="#fff" />
-              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.iconButton}
                 onPress={() => navigation.navigate('Carrinho')}

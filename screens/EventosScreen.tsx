@@ -4,15 +4,17 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   Image,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
-import { getEvents } from '../services/eventsService';
+import { addEventFavorite, getEvents, getFavoriteEventIds, removeEventFavorite } from '../services/eventsService';
 import { ApiEvent } from '../types/payment';
 import { Evento } from '../data/mockData';
 import { EventosScreenNavigationProp } from '../navigation/types';
@@ -20,6 +22,8 @@ import { EventosScreenNavigationProp } from '../navigation/types';
 interface EventosScreenProps {
   navigation: EventosScreenNavigationProp;
 }
+
+type EventListFilter = 'all' | 'favorites';
 
 // Corrige URLs que o backend constrói prefixando MinIO sobre uma URL externa
 // Ex: https://minio.host/bucket/https%3A//picsum.photos/300 → https://picsum.photos/300
@@ -31,7 +35,7 @@ function sanitizeCoverUrl(url: string | null): string | null {
 }
 
 // Mapeia ApiEvent → Evento (shape esperado pela navegação)
-function mapApiEvent(e: ApiEvent): Evento {
+function mapApiEvent(e: ApiEvent, isFavorite: boolean): Evento {
   const coverUrl = sanitizeCoverUrl(e.coverImageUrl);
   return {
     id: e.id,
@@ -41,7 +45,7 @@ function mapApiEvent(e: ApiEvent): Evento {
     dataRelativa: new Date(e.eventDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }),
     imagem: coverUrl ? { uri: coverUrl } : require('../assets/fotos-mock/1.jpg'),
     totalFotos: e._count?.photos ?? 0,
-    favorito: e.isFeatured ?? false,
+    favorito: isFavorite,
   };
 }
 
@@ -51,14 +55,32 @@ export default function EventosScreen({ navigation }: EventosScreenProps) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [favoritePendingIds, setFavoritePendingIds] = useState<Set<string>>(new Set());
+  const [activeFilter, setActiveFilter] = useState<EventListFilter>('all');
 
   const fetchEventos = async (isRefresh = false): Promise<void> => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
     try {
-      const data = await getEvents(() => getToken({ skipCache: true }));
-      setEventos(data.map(mapApiEvent));
+      const getFreshToken = async () => {
+        const fresh = await getToken({ skipCache: true });
+        return fresh ?? getToken();
+      };
+
+      const data = await getEvents(getFreshToken);
+
+      let favoriteEventIds: string[] = [];
+      try {
+        favoriteEventIds = await getFavoriteEventIds(getFreshToken);
+      } catch {
+        favoriteEventIds = [];
+      }
+
+      const favoriteSet = new Set(favoriteEventIds);
+      setFavoriteIds(favoriteSet);
+      setEventos(data.map((event) => mapApiEvent(event, favoriteSet.has(event.id))));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar eventos.');
     } finally {
@@ -73,6 +95,70 @@ export default function EventosScreen({ navigation }: EventosScreenProps) {
     // Mantemos a primeira carga apenas no mount da tela.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const toggleFavorite = async (eventId: string) => {
+    if (favoritePendingIds.has(eventId)) return;
+
+    const currentlyFavorite = favoriteIds.has(eventId);
+
+    setFavoritePendingIds((prev) => {
+      const next = new Set(prev);
+      next.add(eventId);
+      return next;
+    });
+
+    setFavoriteIds((prev) => {
+      const next = new Set(prev);
+      if (currentlyFavorite) next.delete(eventId);
+      else next.add(eventId);
+      return next;
+    });
+
+    setEventos((prev) =>
+      prev.map((event) =>
+        event.id === eventId ? { ...event, favorito: !currentlyFavorite } : event,
+      ),
+    );
+
+    try {
+      const getFreshToken = async () => {
+        const fresh = await getToken({ skipCache: true });
+        return fresh ?? getToken();
+      };
+
+      if (currentlyFavorite) {
+        await removeEventFavorite(eventId, getFreshToken);
+      } else {
+        await addEventFavorite(eventId, getFreshToken);
+      }
+    } catch {
+      // rollback em falha real de rede/servidor
+      setFavoriteIds((prev) => {
+        const next = new Set(prev);
+        if (currentlyFavorite) next.add(eventId);
+        else next.delete(eventId);
+        return next;
+      });
+
+      setEventos((prev) =>
+        prev.map((event) =>
+          event.id === eventId ? { ...event, favorito: currentlyFavorite } : event,
+        ),
+      );
+
+      Alert.alert('Erro', 'Não foi possível atualizar o favorito. Tente novamente.');
+    } finally {
+      setFavoritePendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(eventId);
+        return next;
+      });
+    }
+  };
+
+  const displayedEventos = activeFilter === 'favorites'
+    ? eventos.filter((event) => event.favorito)
+    : eventos;
 
   if (loading) {
     return (
@@ -121,24 +207,71 @@ export default function EventosScreen({ navigation }: EventosScreenProps) {
           />
         }
       >
-        {eventos.length === 0 ? (
+        <View style={styles.filtersRow}>
+          <TouchableOpacity
+            style={[styles.filterChip, activeFilter === 'all' && styles.filterChipActive]}
+            onPress={() => setActiveFilter('all')}
+          >
+            <Text style={[styles.filterChipText, activeFilter === 'all' && styles.filterChipTextActive]}>
+              Todos ({eventos.length})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.filterChip, activeFilter === 'favorites' && styles.filterChipActive]}
+            onPress={() => setActiveFilter('favorites')}
+          >
+            <Ionicons
+              name={activeFilter === 'favorites' ? 'heart' : 'heart-outline'}
+              size={14}
+              color={activeFilter === 'favorites' ? '#000' : '#D4A574'}
+            />
+            <Text
+              style={[
+                styles.filterChipText,
+                activeFilter === 'favorites' && styles.filterChipTextActive,
+              ]}
+            >
+              Favoritos ({eventos.filter((event) => event.favorito).length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {displayedEventos.length === 0 ? (
           <View style={styles.centered}>
-            <Ionicons name="calendar-outline" size={80} color="#8E8E93" />
-            <Text style={styles.emptyText}>Nenhum evento disponível</Text>
+            <Ionicons
+              name={activeFilter === 'favorites' ? 'heart-outline' : 'calendar-outline'}
+              size={80}
+              color="#8E8E93"
+            />
+            <Text style={styles.emptyText}>
+              {activeFilter === 'favorites'
+                ? 'Você ainda não favoritou nenhum evento'
+                : 'Nenhum evento disponível'}
+            </Text>
           </View>
         ) : (
-          eventos.map((evento) => (
+          displayedEventos.map((evento) => (
             <TouchableOpacity
               key={evento.id}
               style={styles.eventCard}
               onPress={() => navigation.navigate('EventoDetalhes', { evento })}
             >
               <Image source={evento.imagem} style={styles.eventImage} />
-              {evento.favorito && (
-                <View style={styles.favoriteIcon}>
-                  <Ionicons name="heart" size={24} color="#FF3B30" />
-                </View>
-              )}
+              <Pressable
+                style={styles.favoriteIcon}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  void toggleFavorite(evento.id);
+                }}
+                disabled={favoritePendingIds.has(evento.id)}
+              >
+                <Ionicons
+                  name={evento.favorito ? 'heart' : 'heart-outline'}
+                  size={24}
+                  color={evento.favorito ? '#FF3B30' : '#6B6B6B'}
+                />
+              </Pressable>
               <View style={styles.eventInfo}>
                 <Text style={styles.eventTitle}>{evento.titulo}</Text>
                 <Text style={styles.eventLocation}>{evento.local}</Text>
@@ -203,6 +336,34 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+  },
+  filtersRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 18,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#7C5BAA',
+    backgroundColor: '#4A2F73',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  filterChipActive: {
+    backgroundColor: '#D4A574',
+    borderColor: '#D4A574',
+  },
+  filterChipText: {
+    color: '#D4A574',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#000',
   },
   eventCard: {
     backgroundColor: '#4A2F73',
