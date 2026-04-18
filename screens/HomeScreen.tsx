@@ -7,9 +7,12 @@ import {
   ScrollView,
   Image,
   Dimensions,
+  Platform,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 import { Evento } from '../data/mockData';
@@ -54,6 +57,7 @@ function mapApiEventToEvento(e: ApiEvent): Evento {
 export default function HomeScreen({ navigation }: HomeScreenProps) {
   const { user } = useAuth();
   const { getCartCount } = useCart();
+  const tabBarHeight = useBottomTabBarHeight();
   const cartCount = getCartCount();
   const { getToken } = useClerkAuth();
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -88,9 +92,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     return 'Boa noite';
   };
 
+  const androidStatusBarOffset = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: 20 + androidStatusBarOffset }]}>
         <Text style={styles.greeting}>{getGreeting()}, {user?.name?.split(' ')[0] || 'Usuário'}!</Text>
         <TouchableOpacity
           style={styles.cartButton}
@@ -105,7 +111,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={{ paddingBottom: tabBarHeight + 24 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Card do Clube */}
         <TouchableOpacity
           style={styles.clubCard}
@@ -173,9 +183,6 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             ))}
           </ScrollView>
         </View>
-
-
-        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );

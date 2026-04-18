@@ -6,7 +6,7 @@
     "scheme": "vitoria-lima-fotografia",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -23,6 +23,10 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       }
+    },
+    "androidNavigationBar": {
+      "backgroundColor": "#2B174B",
+      "barStyle": "light-content"
     },
     "plugins": [
       [

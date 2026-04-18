@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, TextInput, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,6 +25,16 @@ import CheckoutCancelScreen from '../screens/CheckoutCancelScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
+
+const appDarkTheme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: '#000000',
+    card: '#000000',
+    border: '#000000',
+  },
+};
 
 interface CartIconWithBadgeProps {
   color: string;
@@ -55,6 +65,7 @@ function TabNavigator() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
+          position: 'relative',
           backgroundColor: '#4A2F73',
           borderTopWidth: 0,
           height: 60 + insets.bottom,
@@ -130,7 +141,7 @@ export default function Navigation() {
   };
 
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={appDarkTheme}>
       <>
         <Stack.Navigator>
           {!isAuthenticated ? (

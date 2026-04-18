@@ -55,6 +55,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return raw.trim();
   };
 
+  const normalizePhoneConflictMessage = (raw: string): string => {
+    const text = (raw || '').toLowerCase();
+    const phoneConflictPatterns = [
+      'phone already',
+      'phone exists',
+      'telefone ja',
+      'telefone já',
+      'telefone existente',
+      'telefone cadastrado',
+      'telefone em uso',
+      'already in use',
+      'duplicate',
+      'unique',
+    ];
+
+    if (phoneConflictPatterns.some((pattern) => text.includes(pattern))) {
+      return 'Este telefone já está em uso por outro usuário.';
+    }
+
+    return raw;
+  };
+
   const syncUser = useCallback(async (phoneOverride?: string, taxIdOverride?: string): Promise<void> => {
     if (!clerkUser) return;
 
@@ -182,7 +204,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       await syncUser(phoneDigits, taxIdDigits);
       return { success: true };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Nao foi possivel sincronizar seu cadastro.';
+      const rawMessage = error instanceof Error ? error.message : 'Nao foi possivel sincronizar seu cadastro.';
+      const message = normalizePhoneConflictMessage(rawMessage);
       return { success: false, error: message };
     } finally {
       setIsSyncingProfile(false);

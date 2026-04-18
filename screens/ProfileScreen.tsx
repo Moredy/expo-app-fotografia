@@ -21,22 +21,72 @@ interface ProfileScreenProps {
 }
 
 export default function ProfileScreen({ navigation }: ProfileScreenProps) {
-  const { user, signOut } = useAuth();
+  const { user, signOut, submitPhoneForSync } = useAuth();
   const { user: clerkUser, isLoaded: isClerkLoaded } = useUser();
 
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [isPasswordModalVisible, setIsPasswordModalVisible] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const extractTaxId = (): string | null => {
+    if (!clerkUser) return null;
+    const metadata = {
+      ...(clerkUser.publicMetadata as Record<string, unknown>),
+      ...(clerkUser.unsafeMetadata as Record<string, unknown>),
+    };
+
+    const rawTaxId =
+      typeof metadata.taxId === 'string'
+        ? metadata.taxId
+        : typeof metadata.cpfCnpj === 'string'
+          ? metadata.cpfCnpj
+          : typeof metadata.document === 'string'
+            ? metadata.document
+            : null;
+
+    return rawTaxId ? rawTaxId.replace(/\D/g, '') : null;
+  };
+
+  const extractPhone = (): string => {
+    if (!clerkUser) return '';
+    const metadata = {
+      ...(clerkUser.publicMetadata as Record<string, unknown>),
+      ...(clerkUser.unsafeMetadata as Record<string, unknown>),
+    };
+
+    const rawPhone =
+      clerkUser.primaryPhoneNumber?.phoneNumber ??
+      (typeof metadata.phone === 'string'
+        ? metadata.phone
+        : typeof metadata.phoneNumber === 'string'
+          ? metadata.phoneNumber
+          : '');
+
+    return String(rawPhone ?? '').replace(/\D/g, '');
+  };
+
+  const formatPhone = (digits: string): string => {
+    const d = digits.replace(/\D/g, '');
+    if (d.length === 11) {
+      return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+    }
+    if (d.length === 10) {
+      return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    }
+    return digits;
+  };
+
   const openEditProfile = () => {
     if (!clerkUser) return;
     setFirstName(clerkUser.firstName ?? '');
     setLastName(clerkUser.lastName ?? '');
+    setPhone(extractPhone());
     setIsEditModalVisible(true);
   };
 
@@ -45,20 +95,52 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
 
     const nextFirstName = firstName.trim();
     const nextLastName = lastName.trim();
+    const phoneDigits = phone.replace(/\D/g, '');
 
-    if (!nextFirstName && !nextLastName) {
-      Alert.alert('Dados inválidos', 'Informe pelo menos nome ou sobrenome.');
+    if (!nextFirstName && !nextLastName && !phoneDigits) {
+      Alert.alert('Dados inválidos', 'Informe pelo menos nome, sobrenome ou telefone.');
+      return;
+    }
+
+    if (phoneDigits && phoneDigits.length < 10) {
+      Alert.alert('Telefone inválido', 'Informe um telefone com DDD válido.');
       return;
     }
 
     setIsSubmitting(true);
     try {
+      const taxId = extractTaxId();
+      const currentPhoneDigits = extractPhone();
+      const hasPhoneChanged = phoneDigits.length > 0 && phoneDigits !== currentPhoneDigits;
+
+      if (hasPhoneChanged) {
+        if (!taxId || (taxId.length !== 11 && taxId.length !== 14)) {
+          Alert.alert(
+            'Telefone não pôde ser validado',
+            'Para alterar o telefone, complete antes seu CPF/CNPJ para validação de unicidade.'
+          );
+          return;
+        }
+
+        const syncResult = await submitPhoneForSync(phoneDigits, taxId);
+        if (!syncResult.success) {
+          Alert.alert('Telefone indisponível', syncResult.error ?? 'Este telefone já está em uso por outro usuário.');
+          return;
+        }
+      }
+
       await clerkUser.update({
         firstName: nextFirstName || null,
         lastName: nextLastName || null,
+        unsafeMetadata: {
+          ...(clerkUser.unsafeMetadata as Record<string, unknown>),
+          phone: phoneDigits || null,
+          phoneNumber: phoneDigits || null,
+        },
       });
+
       setIsEditModalVisible(false);
-      Alert.alert('Perfil atualizado', 'Seu nome foi atualizado com sucesso.');
+      Alert.alert('Perfil atualizado', 'Seus dados foram atualizados com sucesso.');
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Não foi possível atualizar o perfil.';
       Alert.alert('Erro ao atualizar perfil', message);
@@ -154,8 +236,8 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
           </View>
           <View style={styles.divider} />
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>ID:</Text>
-            <Text style={styles.infoValue} numberOfLines={1} ellipsizeMode="middle">{user?.id}</Text>
+            <Text style={styles.infoLabel}>Telefone:</Text>
+            <Text style={styles.infoValue}>{formatPhone(extractPhone()) || 'Não informado'}</Text>
           </View>
         </View>
       </View>
@@ -213,6 +295,14 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
               style={styles.input}
               placeholder="Sobrenome"
               placeholderTextColor="#B8A0D4"
+            />
+            <TextInput
+              value={phone}
+              onChangeText={setPhone}
+              style={styles.input}
+              placeholder="Telefone"
+              placeholderTextColor="#B8A0D4"
+              keyboardType="phone-pad"
             />
 
             <View style={styles.modalActions}>

@@ -6,13 +6,14 @@ import {
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
   ActivityIndicator,
   Alert,
   ImageBackground,
   Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSignUp, useOAuth } from '@clerk/clerk-expo';
@@ -22,6 +23,7 @@ import * as Linking from 'expo-linking';
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -172,27 +174,33 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-      <ImageBackground
-        source={require('../assets/fotos-mock/1.jpg')}
-        style={styles.background}
-        blurRadius={3}
-      >
-        <View style={styles.overlay}>
-          <View style={styles.logoContainer}>
-            <Image
-              source={require('../assets/logos/logo_branca.png')}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-          </View>
+        <ImageBackground
+          source={require('../assets/fotos-mock/1.jpg')}
+          style={styles.background}
+          blurRadius={3}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+          >
+            <View style={styles.overlay}>
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require('../assets/logos/logo_branca.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                />
+              </View>
 
-          <View style={styles.formContainer}>
-            <Text style={styles.title}>{isSignUpMode ? 'Criar Conta' : 'Login'}</Text>
+              <View style={[styles.formContainer, { paddingBottom: 30 + Math.max(insets.bottom, 16) }]}>
+                <Text style={styles.title}>{isSignUpMode ? 'Criar Conta' : 'Login'}</Text>
 
             <View style={styles.inputWrapper}>
               <TextInput
@@ -254,7 +262,7 @@ export default function LoginScreen() {
             </View>
 
             <TouchableOpacity style={styles.socialButton} onPress={handleGoogleSignIn}>
-              <AntDesign name="google" size={20} color="#fff" />
+              <AntDesign name="google" size={20} color="#111" />
               <Text style={styles.socialButtonText}>Continuar com Google</Text>
             </TouchableOpacity>
 
@@ -283,14 +291,15 @@ export default function LoginScreen() {
               </Text>
             </TouchableOpacity>
 
-            <Text style={styles.terms}>
-              Ao acessar ou criar a sua conta, você concorda com nossos{' '}
-              <Text style={styles.termsLink}>Termos e Condições Gerais</Text> e leu e aceitou a{' '}
-              <Text style={styles.termsLink}>Política de privacidade</Text>.
-            </Text>
-          </View>
-        </View>
-      </ImageBackground>
+                <Text style={styles.terms}>
+                  Ao acessar ou criar a sua conta, você concorda com nossos{' '}
+                  <Text style={styles.termsLink}>Termos e Condições Gerais</Text> e leu e aceitou a{' '}
+                  <Text style={styles.termsLink}>Política de privacidade</Text>.
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+        </ImageBackground>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -299,7 +308,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#5B3A8F',
+    backgroundColor: '#2B174B',
   },
   keyboardView: {
     flex: 1,
@@ -307,8 +316,11 @@ const styles = StyleSheet.create({
   background: {
     flex: 1,
   },
+  scrollContent: {
+    flexGrow: 1,
+  },
   overlay: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: 'rgba(91, 58, 143, 0.85)',
     justifyContent: 'space-between',
     paddingTop: 20,
@@ -406,16 +418,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#5B3A8F',
+    backgroundColor: '#F3F4F6',
     borderWidth: 1,
-    borderColor: '#7B5BA8',
+    borderColor: '#E5E7EB',
     paddingVertical: 14,
     borderRadius: 12,
     marginBottom: 12,
     gap: 10,
   },
   socialButtonText: {
-    color: '#fff',
+    color: '#111',
     fontSize: 16,
     fontWeight: '600',
   },
