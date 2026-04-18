@@ -22,6 +22,16 @@ import * as Linking from 'expo-linking';
 
 WebBrowser.maybeCompleteAuthSession();
 
+const getOAuthRedirectUrl = (): string => {
+  const envRedirectUrl = process.env.EXPO_PUBLIC_CLERK_OAUTH_REDIRECT_URL?.trim();
+
+  if (envRedirectUrl) {
+    return envRedirectUrl;
+  }
+
+  return Linking.createURL('/oauth-callback');
+};
+
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const [email, setEmail] = useState<string>('');
@@ -29,6 +39,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isSignUpMode, setIsSignUpMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const oauthRedirectUrl = getOAuthRedirectUrl();
   const { signIn, isLoading } = useAuth();
   const { signUp, isLoaded: signUpLoaded } = useSignUp();
   const { startOAuthFlow: startGoogleOAuth } = useOAuth({ strategy: 'oauth_google' });
@@ -148,7 +159,7 @@ export default function LoginScreen() {
   const handleGoogleSignIn = async (): Promise<void> => {
     try {
       const { createdSessionId, setActive } = await startGoogleOAuth({
-        redirectUrl: Linking.createURL('/'),
+        redirectUrl: oauthRedirectUrl,
       });
       if (createdSessionId) {
         await setActive?.({ session: createdSessionId });
@@ -162,7 +173,7 @@ export default function LoginScreen() {
   const handleAppleSignIn = async (): Promise<void> => {
     try {
       const { createdSessionId, setActive } = await startAppleOAuth({
-        redirectUrl: Linking.createURL('/'),
+        redirectUrl: oauthRedirectUrl,
       });
       if (createdSessionId) {
         await setActive?.({ session: createdSessionId });
