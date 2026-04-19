@@ -37,16 +37,28 @@ const getOAuthRedirectUrl = (): string => {
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
+  const [fullName, setFullName] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
+  const [verificationCode, setVerificationCode] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isSignUpMode, setIsSignUpMode] = useState<boolean>(false);
+  const [pendingEmailVerification, setPendingEmailVerification] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const oauthRedirectUrl = getOAuthRedirectUrl();
   const { signIn, isLoading } = useAuth();
-  const { signUp, isLoaded: signUpLoaded } = useSignUp();
+  const { signUp, setActive, isLoaded: signUpLoaded } = useSignUp();
   const { startOAuthFlow: startGoogleOAuth } = useOAuth({ strategy: 'oauth_google' });
   const { startOAuthFlow: startAppleOAuth } = useOAuth({ strategy: 'oauth_apple' });
+
+  const resetToLoginMode = (): void => {
+    setIsSignUpMode(false);
+    setPendingEmailVerification(false);
+    setVerificationCode('');
+    setFullName('');
+    setEmail('');
+    setPassword('');
+  };
 
   const handleLogin = async (): Promise<void> => {
     if (!email || !password) {
@@ -66,9 +78,7 @@ export default function LoginScreen() {
   };
 
   const handleSignUp = async (): Promise<void> => {
-    console.log('handleSignUp iniciado');
-    
-    if (!email || !password) {
+    if (!fullName.trim() || !email || !password) {
       Alert.alert('Erro', 'Por favor, preencha todos os campos');
       return;
     }
@@ -80,64 +90,42 @@ export default function LoginScreen() {
 
     if (!signUpLoaded) {
       Alert.alert('Erro', 'Sistema de cadastro não está pronto. Aguarde alguns segundos e tente novamente.');
-      console.log('signUpLoaded:', signUpLoaded);
       return;
     }
 
     setLoading(true);
     try {
-      console.log('Criando conta com email:', email);
-      
-      // Criar conta com Clerk
+      const normalizedFullName = fullName.trim().replace(/\s+/g, ' ');
+      const nameParts = normalizedFullName.split(' ');
+      const firstName = nameParts[0] || normalizedFullName;
+      const lastName = nameParts.slice(1).join(' ') || undefined;
+
       const result = await signUp.create({
         emailAddress: email,
         password,
+        firstName,
+        lastName,
+        unsafeMetadata: {
+          fullName: normalizedFullName,
+        },
       });
 
-      console.log('Conta criada, status:', result.status);
-
-      // Se a conta foi criada com sucesso
-      if (result.status === 'complete' || result.status === 'missing_requirements') {
-        // Tentar preparar verificação de email
-        try {
-          await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-          
-          Alert.alert(
-            'Verificação necessária',
-            'Um código de verificação foi enviado para seu e-mail. Por favor, verifique sua conta no painel do Clerk.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  setIsSignUpMode(false);
-                  setEmail('');
-                  setPassword('');
-                },
-              },
-            ]
-          );
-        } catch (verifyError) {
-          // Se a verificação não for obrigatória
-          Alert.alert(
-            'Conta criada!',
-            'Sua conta foi criada com sucesso. Você já pode fazer login.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  setIsSignUpMode(false);
-                },
-              },
-            ]
-          );
-        }
+      if (result.status === 'complete' && result.createdSessionId) {
+        await setActive?.({ session: result.createdSessionId });
+        Alert.alert('Conta criada!', 'Sua conta foi criada e autenticada com sucesso.');
+        resetToLoginMode();
+        return;
       }
+
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+      setPendingEmailVerification(true);
+      setVerificationCode('');
+      Alert.alert('Código enviado', 'Enviamos um código de verificação para seu e-mail.');
     } catch (error: any) {
       console.error('Erro ao criar conta:', error);
-      console.error('Erro completo:', JSON.stringify(error, null, 2));
-      
+
       let errorMessage = 'Erro ao criar conta. Tente novamente.';
-      
+
       if (error?.errors && error.errors.length > 0) {
         errorMessage = error.errors[0].message || error.errors[0].longMessage || errorMessage;
       } else if (error?.message) {
@@ -150,10 +138,72 @@ export default function LoginScreen() {
     }
   };
 
+  const handleVerifyEmailCode = async (): Promise<void> => {
+    if (!verificationCode.trim()) {
+      Alert.alert('Erro', 'Informe o código enviado para seu e-mail.');
+      return;
+    }
+
+    if (!signUpLoaded) {
+      Alert.alert('Erro', 'Sistema de cadastro não está pronto. Aguarde e tente novamente.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const attempt = await signUp.attemptEmailAddressVerification({
+        code: verificationCode.trim(),
+      });
+
+      if (attempt.status === 'complete' && attempt.createdSessionId) {
+        await setActive?.({ session: attempt.createdSessionId });
+        Alert.alert('E-mail verificado', 'Sua conta foi confirmada com sucesso.');
+        resetToLoginMode();
+        return;
+      }
+
+      Alert.alert('Verificação pendente', 'Não foi possível concluir a verificação. Tente novamente.');
+    } catch (error: any) {
+      const errorMessage =
+        error?.errors?.[0]?.message ||
+        error?.errors?.[0]?.longMessage ||
+        error?.message ||
+        'Código inválido ou expirado. Solicite um novo código.';
+      Alert.alert('Erro ao verificar código', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendCode = async (): Promise<void> => {
+    if (!signUpLoaded) {
+      Alert.alert('Erro', 'Sistema de cadastro não está pronto. Aguarde e tente novamente.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+      Alert.alert('Código reenviado', 'Verifique seu e-mail para o novo código.');
+    } catch (error: any) {
+      const errorMessage =
+        error?.errors?.[0]?.message ||
+        error?.errors?.[0]?.longMessage ||
+        error?.message ||
+        'Não foi possível reenviar o código agora.';
+      Alert.alert('Erro', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (): Promise<void> => {
-    console.log('handleSubmit chamado, isSignUpMode:', isSignUpMode);
     if (isSignUpMode) {
-      await handleSignUp();
+      if (pendingEmailVerification) {
+        await handleVerifyEmailCode();
+      } else {
+        await handleSignUp();
+      }
     } else {
       await handleLogin();
     }
@@ -214,7 +264,13 @@ export default function LoginScreen() {
               </View>
 
               <View style={[styles.formContainer, { paddingBottom: 30 + Math.max(insets.bottom, 16) }]}>
-                <Text style={styles.title}>{isSignUpMode ? 'Criar Conta' : 'Login'}</Text>
+                <Text style={styles.title}>
+                  {isSignUpMode
+                    ? pendingEmailVerification
+                      ? 'Verificar E-mail'
+                      : 'Criar Conta'
+                    : 'Login'}
+                </Text>
 
             <View style={styles.inputWrapper}>
               <TextInput
@@ -225,31 +281,63 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                editable={!loading && !isLoading}
+                editable={!loading && !isLoading && !pendingEmailVerification}
               />
             </View>
 
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.input}
-                placeholder={isSignUpMode ? 'Senha (mínimo 8 caracteres)' : 'Digite sua senha'}
-                placeholderTextColor="#999"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                editable={!loading && !isLoading}
-              />
-              <TouchableOpacity
-                style={styles.eyeIcon}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={24}
-                  color="#999"
+            {isSignUpMode && !pendingEmailVerification && (
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nome completo"
+                  placeholderTextColor="#999"
+                  value={fullName}
+                  onChangeText={setFullName}
+                  autoCapitalize="words"
+                  editable={!loading && !isLoading}
                 />
-              </TouchableOpacity>
-            </View>
+              </View>
+            )}
+
+            {isSignUpMode && pendingEmailVerification ? (
+              <>
+                <Text style={styles.infoText}>Digite o código de 6 dígitos enviado para seu e-mail.</Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Código de verificação"
+                    placeholderTextColor="#999"
+                    value={verificationCode}
+                    onChangeText={setVerificationCode}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    editable={!loading && !isLoading}
+                  />
+                </View>
+              </>
+            ) : (
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder={isSignUpMode ? 'Senha (mínimo 8 caracteres)' : 'Digite sua senha'}
+                  placeholderTextColor="#999"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  editable={!loading && !isLoading}
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={24}
+                    color="#999"
+                  />
+                </TouchableOpacity>
+              </View>
+            )}
 
             <TouchableOpacity
               style={[styles.button, (loading || isLoading) && styles.buttonDisabled]}
@@ -259,9 +347,25 @@ export default function LoginScreen() {
               {(loading || isLoading) ? (
                 <ActivityIndicator color="#000" />
               ) : (
-                <Text style={styles.buttonText}>{isSignUpMode ? 'Criar Conta' : 'Continuar'}</Text>
+                <Text style={styles.buttonText}>
+                  {isSignUpMode
+                    ? pendingEmailVerification
+                      ? 'Verificar código'
+                      : 'Criar Conta'
+                    : 'Continuar'}
+                </Text>
               )}
             </TouchableOpacity>
+
+            {isSignUpMode && pendingEmailVerification && (
+              <TouchableOpacity
+                style={styles.linkButton}
+                onPress={handleResendCode}
+                disabled={loading || isLoading}
+              >
+                <Text style={styles.linkText}>Reenviar código</Text>
+              </TouchableOpacity>
+            )}
 
             {!isSignUpMode && (
               <TouchableOpacity style={styles.linkButton}>
@@ -269,22 +373,26 @@ export default function LoginScreen() {
               </TouchableOpacity>
             )}
 
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>ou continue com</Text>
-              <View style={styles.dividerLine} />
-            </View>
+            {!pendingEmailVerification && (
+              <>
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>ou continue com</Text>
+                  <View style={styles.dividerLine} />
+                </View>
 
-            <TouchableOpacity style={styles.socialButton} onPress={handleGoogleSignIn}>
-              <AntDesign name="google" size={20} color="#111" />
-              <Text style={styles.socialButtonText}>Continuar com Google</Text>
-            </TouchableOpacity>
+                <TouchableOpacity style={styles.socialButton} onPress={handleGoogleSignIn}>
+                  <AntDesign name="google" size={20} color="#111" />
+                  <Text style={styles.socialButtonText}>Continuar com Google</Text>
+                </TouchableOpacity>
 
-            {Platform.OS === 'ios' && (
-              <TouchableOpacity style={[styles.socialButton, styles.appleButton]} onPress={handleAppleSignIn}>
-                <AntDesign name="apple" size={22} color="#000" />
-                <Text style={[styles.socialButtonText, styles.appleButtonText]}>Continuar com Apple</Text>
-              </TouchableOpacity>
+                {Platform.OS === 'ios' && (
+                  <TouchableOpacity style={[styles.socialButton, styles.appleButton]} onPress={handleAppleSignIn}>
+                    <AntDesign name="apple" size={22} color="#000" />
+                    <Text style={[styles.socialButtonText, styles.appleButtonText]}>Continuar com Apple</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
 
             <View style={styles.divider}>
@@ -294,14 +402,24 @@ export default function LoginScreen() {
             <TouchableOpacity 
               style={styles.createAccountButton}
               onPress={() => {
-                console.log('Alternando modo. Atual:', isSignUpMode, '-> Novo:', !isSignUpMode);
-                setIsSignUpMode(!isSignUpMode);
-                setEmail('');
-                setPassword('');
+                if (isSignUpMode) {
+                  resetToLoginMode();
+                } else {
+                  setIsSignUpMode(true);
+                  setPendingEmailVerification(false);
+                  setVerificationCode('');
+                  setFullName('');
+                  setEmail('');
+                  setPassword('');
+                }
               }}
             >
               <Text style={styles.createAccountText}>
-                {isSignUpMode ? 'Já tem conta? Fazer login' : 'Criar conta'}
+                {isSignUpMode
+                  ? pendingEmailVerification
+                    ? 'Usar outro e-mail'
+                    : 'Já tem conta? Fazer login'
+                  : 'Criar conta'}
               </Text>
             </TouchableOpacity>
 
@@ -359,6 +477,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 30,
+  },
+  infoText: {
+    color: '#D7C5EE',
+    fontSize: 14,
+    marginBottom: 12,
   },
   inputWrapper: {
     marginBottom: 20,

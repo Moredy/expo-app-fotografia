@@ -31,7 +31,7 @@
       "package": "com.mored.vitorialimafotografia"
     },
     "androidNavigationBar": {
-      "backgroundColor": "#2B174B",
+      "backgroundColor": "#5B3A8F",
       "barStyle": "light-content"
     },
     "plugins": [

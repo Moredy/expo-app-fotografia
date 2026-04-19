@@ -23,8 +23,8 @@ function AndroidNavigationBarController() {
   useEffect(() => {
     if (Platform.OS !== 'android') return;
 
-    // In edge-to-edge mode, Android ignores position/background/border APIs.
-    // Keep only button style to avoid runtime warnings from unsupported calls.
+    // In edge-to-edge mode, position/background APIs are not supported.
+    // Keep only button style to avoid runtime warnings.
     NavigationBar.setButtonStyleAsync('light').catch(() => {});
   }, [insets.bottom]);
 

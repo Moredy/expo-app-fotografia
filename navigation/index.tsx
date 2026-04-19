@@ -30,10 +30,48 @@ const appDarkTheme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: '#000000',
-    card: '#000000',
-    border: '#000000',
+    background: '#5B3A8F',
+    card: '#5B3A8F',
+    border: '#5B3A8F',
   },
+};
+
+const onlyDigits = (value: string): string => value.replace(/\D/g, '');
+
+const formatPhone = (value: string): string => {
+  const digits = onlyDigits(value).slice(0, 11);
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  if (digits.length <= 6) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  }
+
+  if (digits.length <= 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
+
+const formatCpf = (value: string): string => {
+  const cpfDigits = onlyDigits(value).slice(0, 11);
+
+  if (cpfDigits.length <= 3) {
+    return cpfDigits;
+  }
+
+  if (cpfDigits.length <= 6) {
+    return `${cpfDigits.slice(0, 3)}.${cpfDigits.slice(3)}`;
+  }
+
+  if (cpfDigits.length <= 9) {
+    return `${cpfDigits.slice(0, 3)}.${cpfDigits.slice(3, 6)}.${cpfDigits.slice(6)}`;
+  }
+
+  return `${cpfDigits.slice(0, 3)}.${cpfDigits.slice(3, 6)}.${cpfDigits.slice(6, 9)}-${cpfDigits.slice(9)}`;
 };
 
 interface CartIconWithBadgeProps {
@@ -66,11 +104,12 @@ function TabNavigator() {
         headerShown: false,
         tabBarStyle: {
           position: 'relative',
-          backgroundColor: '#4A2F73',
+          backgroundColor: '#3A245B',
           borderTopWidth: 0,
           height: 60 + insets.bottom,
           paddingBottom: insets.bottom,
           paddingTop: 10,
+          marginBottom: 8,
         },
         tabBarActiveTintColor: '#D4A574',
         tabBarInactiveTintColor: '#B8A0D4',
@@ -130,8 +169,16 @@ export default function Navigation() {
   const [phoneInput, setPhoneInput] = React.useState('');
   const [taxIdInput, setTaxIdInput] = React.useState('');
 
+  const handlePhoneInputChange = (value: string) => {
+    setPhoneInput(formatPhone(value));
+  };
+
+  const handleTaxIdInputChange = (value: string) => {
+    setTaxIdInput(formatCpf(value));
+  };
+
   const handleSubmitPhone = async () => {
-    const result = await submitPhoneForSync(phoneInput, taxIdInput);
+    const result = await submitPhoneForSync(onlyDigits(phoneInput), onlyDigits(taxIdInput));
     if (!result.success) {
       Alert.alert('Dados inválidos', result.error ?? 'Nao foi possivel salvar seus dados.');
       return;
@@ -206,26 +253,28 @@ export default function Navigation() {
             <View style={styles.phoneModalCard}>
               <Text style={styles.phoneModalTitle}>Complete seu cadastro</Text>
               <Text style={styles.phoneModalText}>
-                Para concluir seu cadastro no sistema, informe seu telefone e CPF/CNPJ.
+                Para concluir seu cadastro no sistema, informe seu telefone e CPF.
               </Text>
 
               <TextInput
                 style={styles.phoneInput}
                 value={phoneInput}
-                onChangeText={setPhoneInput}
+                onChangeText={handlePhoneInputChange}
                 placeholder="Ex: (11) 99999-9999"
                 placeholderTextColor="#9F8ABF"
                 keyboardType="phone-pad"
+                maxLength={15}
                 editable={!isSyncingProfile}
               />
 
               <TextInput
                 style={styles.phoneInput}
                 value={taxIdInput}
-                onChangeText={setTaxIdInput}
-                placeholder="CPF/CNPJ"
+                onChangeText={handleTaxIdInputChange}
+                placeholder="CPF"
                 placeholderTextColor="#9F8ABF"
                 keyboardType="number-pad"
+                maxLength={14}
                 editable={!isSyncingProfile}
               />
 

@@ -27,7 +27,7 @@ interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const { user: clerkUser, isLoaded: userLoaded } = useUser();
-  const { signIn: clerkSignIn, isLoaded: signInLoaded } = useSignIn();
+  const { signIn: clerkSignIn, setActive: setActiveSignInSession, isLoaded: signInLoaded } = useSignIn();
   const { signOut: clerkSignOut, getToken } = useClerkAuth();
   const syncedUserIdRef = useRef<string | null>(null);
   const [phoneSyncRequired, setPhoneSyncRequired] = useState(false);
@@ -118,7 +118,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return;
     }
 
-    if (!resolvedTaxId || (resolvedTaxId.length !== 11 && resolvedTaxId.length !== 14)) {
+    if (!resolvedTaxId || resolvedTaxId.length !== 11) {
       setPhoneSyncRequired(true);
       return;
     }
@@ -195,8 +195,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return { success: false, error: 'Informe um telefone válido com DDD.' };
     }
 
-    if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
-      return { success: false, error: 'Informe um CPF/CNPJ valido.' };
+    if (taxIdDigits.length !== 11) {
+      return { success: false, error: 'Informe um CPF valido.' };
     }
 
     setIsSyncingProfile(true);
@@ -224,6 +224,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       });
 
       if (result.status === 'complete') {
+        await setActiveSignInSession?.({ session: result.createdSessionId });
         return { success: true };
       } else {
         return { success: false, error: 'Autenticação incompleta' };
