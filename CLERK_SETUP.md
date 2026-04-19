@@ -29,13 +29,23 @@ Vá para [https://dashboard.clerk.com](https://dashboard.clerk.com)
    - Você pode escolher se deseja **verificação obrigatória** ou não
    - Se ativar verificação, um código será enviado por email
 
-### 4. Teste no Modo Development
+### 4. Configure Redirect URLs (Google/Apple OAuth)
+
+No painel do Clerk, acesse **Configure -> SSO connections -> Google** (e Apple, se usar) e adicione os redirects autorizados para o app:
+
+- **Dev Build (recomendado neste projeto):** `vitoria-lima-fotografia://oauth-callback`
+- **Fallback que pode aparecer em algumas execuções:** `vitoria-lima-fotografia:///oauth-callback`
+- **Expo Go (desenvolvimento local):** `exp://SEU_IP:8081/--/oauth-callback`
+
+Se o redirect usado pelo app nao estiver autorizado no Clerk, o login social falha com a mensagem de redirect URI nao autorizado.
+
+### 5. Teste no Modo Development
 
 - Por padrão, o Clerk funciona em modo **Development**
 - Você pode usar qualquer email para teste
 - Se a verificação estiver ativada, o código aparecerá nos logs
 
-### 5. Emails Reais (Produção)
+### 6. Emails Reais (Produção)
 
 Para enviar emails reais:
 1. Vá em **"Configure"** → **"Email, SMS"**

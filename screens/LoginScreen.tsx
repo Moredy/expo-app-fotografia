@@ -31,7 +31,8 @@ const getOAuthRedirectUrl = (): string => {
     return envRedirectUrl;
   }
 
-  return Linking.createURL('/oauth-callback');
+  // Avoid leading slash so custom schemes resolve to scheme://oauth-callback.
+  return Linking.createURL('oauth-callback');
 };
 
 export default function LoginScreen() {
