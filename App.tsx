@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View, Image, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ClerkProvider, ClerkLoaded } from '@clerk/clerk-expo';
+import { ClerkProvider, ClerkLoaded, ClerkLoading } from '@clerk/clerk-expo';
 import { AuthProvider } from './contexts/AuthContext';
 import { CartProvider } from './contexts/CartContext';
 import { OrderProvider } from './contexts/OrderContext';
@@ -19,33 +19,39 @@ if (!publishableKey) {
 
 function AndroidNavigationBarController() {
   const insets = useSafeAreaInsets();
-  const safeAreaColor = '#2B174B';
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
 
-    const hasSmallBottomSafeArea = (insets.bottom ?? 0) <= 8;
-
-    if (hasSmallBottomSafeArea) {
-      NavigationBar.setPositionAsync('absolute').catch(() => {});
-      NavigationBar.setBackgroundColorAsync('#00000000').catch(() => {});
-      NavigationBar.setBorderColorAsync('#00000000').catch(() => {});
-      NavigationBar.setButtonStyleAsync('light').catch(() => {});
-      return;
-    }
-
-    NavigationBar.setPositionAsync('relative').catch(() => {});
-    NavigationBar.setBackgroundColorAsync(safeAreaColor).catch(() => {});
-    NavigationBar.setBorderColorAsync(safeAreaColor).catch(() => {});
+    // In edge-to-edge mode, Android ignores position/background/border APIs.
+    // Keep only button style to avoid runtime warnings from unsupported calls.
     NavigationBar.setButtonStyleAsync('light').catch(() => {});
   }, [insets.bottom]);
 
   return null;
 }
 
+function BrandLoadingScreen() {
+  return (
+    <View style={styles.loadingContainer}>
+      <Image
+        source={require('./assets/logos/logo_branca.png')}
+        style={styles.loadingLogo}
+        resizeMode="contain"
+      />
+      <ActivityIndicator size="small" color="#D4A574" style={styles.loadingSpinner} />
+      <Text style={styles.loadingText}>Carregando...</Text>
+      <StatusBar style="light" translucent backgroundColor="transparent" />
+    </View>
+  );
+}
+
 export default function App() {
   return (
     <ClerkProvider tokenCache={tokenCache} publishableKey={publishableKey}>
+      <ClerkLoading>
+        <BrandLoadingScreen />
+      </ClerkLoading>
       <ClerkLoaded>
         <SafeAreaProvider>
           <AndroidNavigationBarController />
@@ -62,3 +68,26 @@ export default function App() {
     </ClerkProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#5B3A8F',
+    paddingHorizontal: 24,
+  },
+  loadingLogo: {
+    width: 220,
+    height: 110,
+  },
+  loadingSpinner: {
+    marginTop: 18,
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#D9C8EF',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+});

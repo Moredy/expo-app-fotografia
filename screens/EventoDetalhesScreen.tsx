@@ -11,7 +11,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
 import { useCart } from '../contexts/CartContext';
@@ -35,6 +35,7 @@ interface FotoLocal {
 }
 
 export default function EventoDetalhesScreen({ route, navigation }: EventoDetalhesScreenProps) {
+  const insets = useSafeAreaInsets();
   const { evento } = route.params;
   const { addToCart, getCartCount, isInCart } = useCart();
   const { getToken } = useClerkAuth();
@@ -285,7 +286,7 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
       )}
 
       {modoSelecao && fotosSelecionadas > 0 && (
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, { paddingBottom: Math.max(15, insets.bottom + 10) }]}>
           <View>
             <Text style={styles.selectedCount}>
               {fotosSelecionadas} foto{fotosSelecionadas > 1 ? 's' : ''} selecionada{fotosSelecionadas > 1 ? 's' : ''}

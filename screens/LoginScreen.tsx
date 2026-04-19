@@ -22,6 +22,8 @@ import * as Linking from 'expo-linking';
 
 WebBrowser.maybeCompleteAuthSession();
 
+const LOGIN_CONTAINER_PURPLE = '#4A2F73';
+
 const getOAuthRedirectUrl = (): string => {
   const envRedirectUrl = process.env.EXPO_PUBLIC_CLERK_OAUTH_REDIRECT_URL?.trim();
 
@@ -319,7 +321,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2B174B',
+    backgroundColor: LOGIN_CONTAINER_PURPLE,
   },
   keyboardView: {
     flex: 1,
@@ -345,7 +347,7 @@ const styles = StyleSheet.create({
     height: 100,
   },
   formContainer: {
-    backgroundColor: '#4A2F73',
+    backgroundColor: LOGIN_CONTAINER_PURPLE,
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     padding: 30,
