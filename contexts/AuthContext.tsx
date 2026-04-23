@@ -11,7 +11,9 @@ interface User {
 interface AuthContextData {
   user: User | null;
   isLoading: boolean;
-  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string; requiresSecondFactor?: boolean }>;
+  completeSecondFactor: (code: string) => Promise<{ success: boolean; error?: string }>;
+  pendingSecondFactor: boolean;
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
   phoneSyncRequired: boolean;
@@ -32,6 +34,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const syncedUserIdRef = useRef<string | null>(null);
   const [phoneSyncRequired, setPhoneSyncRequired] = useState(false);
   const [isSyncingProfile, setIsSyncingProfile] = useState(false);
+  const [pendingSecondFactor, setPendingSecondFactor] = useState(false);
 
   const parseSyncErrorMessage = (raw: string, fallback: string): string => {
     if (!raw || raw.trim().length === 0) return fallback;
@@ -75,6 +78,79 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
 
     return raw;
+  };
+
+  const translateAuthErrorMessage = (raw?: string): string => {
+    const message = (raw || '').trim();
+    if (!message) return 'Não foi possível fazer login. Tente novamente.';
+
+    const normalized = message.toLowerCase();
+
+    if (normalized.includes('password is incorrect')) {
+      return 'Senha incorreta. Tente novamente ou use outro método.';
+    }
+
+    if (normalized.includes('identifier') && normalized.includes('not found')) {
+      return 'Não encontramos uma conta com esse e-mail.';
+    }
+
+    if (normalized.includes('too many requests') || normalized.includes('rate limit')) {
+      return 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+    }
+
+    if (normalized.includes('network') || normalized.includes('fetch')) {
+      return 'Falha de conexão. Verifique sua internet e tente novamente.';
+    }
+
+    return 'Não foi possível fazer login. Verifique seus dados e tente novamente.';
+  };
+
+  const translateVerificationErrorMessage = (raw?: string): string => {
+    const message = (raw || '').trim();
+    if (!message) return 'Não foi possível validar o código. Tente novamente.';
+
+    const normalized = message.toLowerCase();
+
+    if (normalized.includes('is incorrect') || normalized.includes('invalid code') || normalized.includes('code is invalid')) {
+      return 'Código incorreto. Tente novamente.';
+    }
+
+    if (normalized.includes('expired') || normalized.includes('too old')) {
+      return 'Código expirado. Gere um novo código e tente novamente.';
+    }
+
+    if (normalized.includes('too many requests') || normalized.includes('rate limit')) {
+      return 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+    }
+
+    if (normalized.includes('required') || normalized.includes('missing')) {
+      return 'Informe o código de verificação para continuar.';
+    }
+
+    return 'Não foi possível validar o código. Confira e tente novamente.';
+  };
+
+  const getIncompleteAuthMessage = (status?: string | null): string => {
+    if (!status) {
+      return 'Não foi possível concluir a autenticação. Tente novamente.';
+    }
+
+    switch (status) {
+      case 'needs_first_factor':
+        return 'Sua conta exige verificação adicional (primeiro fator). Conclua a etapa para entrar.';
+      case 'needs_second_factor':
+        return 'Sua conta exige segundo fator (MFA). Conclua a verificação para continuar.';
+      case 'needs_new_password':
+        return 'É necessário definir uma nova senha para concluir o login.';
+      case 'needs_identifier':
+        return 'Informe um identificador válido (e-mail/telefone) para continuar.';
+      case 'needs_verification':
+        return 'É necessário verificar sua conta para concluir o login.';
+      case 'complete':
+        return '';
+      default:
+        return `Autenticação pendente (${status}).`;
+    }
   };
 
   const syncUser = useCallback(async (phoneOverride?: string, taxIdOverride?: string): Promise<void> => {
@@ -212,7 +288,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, [syncUser]);
 
-  const signIn = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const signIn = async (email: string, password: string): Promise<{ success: boolean; error?: string; requiresSecondFactor?: boolean }> => {
     if (!signInLoaded) {
       return { success: false, error: 'Autenticação não está pronta' };
     }
@@ -225,15 +301,57 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       if (result.status === 'complete') {
         await setActiveSignInSession?.({ session: result.createdSessionId });
+        setPendingSecondFactor(false);
         return { success: true };
+      } else if (result.status === 'needs_second_factor') {
+        setPendingSecondFactor(true);
+        return {
+          success: false,
+          requiresSecondFactor: true,
+          error: getIncompleteAuthMessage(result.status),
+        };
       } else {
-        return { success: false, error: 'Autenticação incompleta' };
+        const statusMessage = getIncompleteAuthMessage(result.status);
+        console.warn(`Login retornou status não finalizado: ${result.status}`);
+        return { success: false, error: statusMessage };
       }
     } catch (error: any) {
-      console.error('Erro ao fazer login:', error);
-      
+      const errorCode = error?.errors?.[0]?.code || error?.code || 'desconhecido';
+      console.error(`Erro ao fazer login (codigo: ${errorCode})`);
+
       // Tratamento de erros específicos do Clerk
-      const errorMessage = error?.errors?.[0]?.message || error?.message || 'Erro ao fazer login';
+      const rawErrorMessage = error?.errors?.[0]?.message || error?.message;
+      const errorMessage = translateAuthErrorMessage(rawErrorMessage);
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  const completeSecondFactor = async (code: string): Promise<{ success: boolean; error?: string }> => {
+    if (!signInLoaded) {
+      return { success: false, error: 'Autenticação não está pronta' };
+    }
+
+    const normalizedCode = code.trim();
+    if (!normalizedCode) {
+      return { success: false, error: 'Informe o código MFA.' };
+    }
+
+    try {
+      const result = await clerkSignIn.attemptSecondFactor({
+        strategy: 'totp',
+        code: normalizedCode,
+      });
+
+      if (result.status === 'complete') {
+        await setActiveSignInSession?.({ session: result.createdSessionId });
+        setPendingSecondFactor(false);
+        return { success: true };
+      }
+
+      return { success: false, error: getIncompleteAuthMessage(result.status) };
+    } catch (error: any) {
+      const rawErrorMessage = error?.errors?.[0]?.message || error?.message;
+      const errorMessage = translateVerificationErrorMessage(rawErrorMessage);
       return { success: false, error: errorMessage };
     }
   };
@@ -243,6 +361,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       await clerkSignOut();
       setPhoneSyncRequired(false);
       setIsSyncingProfile(false);
+      setPendingSecondFactor(false);
       syncedUserIdRef.current = null;
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
@@ -269,6 +388,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         user,
         isLoading: !userLoaded || !signInLoaded,
         signIn,
+        completeSecondFactor,
+        pendingSecondFactor,
         signOut,
         isAuthenticated: !!clerkUser,
         phoneSyncRequired,

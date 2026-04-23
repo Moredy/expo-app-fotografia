@@ -109,7 +109,7 @@ function TabNavigator() {
           height: 60 + insets.bottom,
           paddingBottom: insets.bottom,
           paddingTop: 10,
-          marginBottom: 8,
+          marginBottom: 0,
         },
         tabBarActiveTintColor: '#D4A574',
         tabBarInactiveTintColor: '#B8A0D4',

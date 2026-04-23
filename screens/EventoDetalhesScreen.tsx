@@ -10,6 +10,7 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -44,6 +45,7 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addingToCart, setAddingToCart] = useState<boolean>(false);
+  const [fotoPreview, setFotoPreview] = useState<FotoLocal | null>(null);
   const addLockRef = useRef(false);
 
   const fetchFotos = async (): Promise<void> => {
@@ -161,6 +163,57 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
     }
   };
 
+  const handleOpenPreview = (foto: FotoLocal): void => {
+    if (addingToCart) return;
+    if (modoSelecao) {
+      toggleSelecao(foto.id);
+      return;
+    }
+    setFotoPreview(foto);
+  };
+
+  const handleAddPreviewToCart = async (): Promise<void> => {
+    if (!fotoPreview || addLockRef.current || addingToCart) return;
+    if (fotoPreview.comprada) {
+      Alert.alert('Foto indisponivel', 'Essa foto ja foi comprada.');
+      return;
+    }
+
+    setAddingToCart(true);
+    addLockRef.current = true;
+
+    try {
+      const sucesso = await addToCart(fotoPreview, evento);
+
+      if (sucesso) {
+        Alert.alert('Sucesso! 🎉', 'Foto adicionada ao carrinho!', [
+          { text: 'Continuar comprando', style: 'cancel' },
+          {
+            text: 'Ver carrinho',
+            onPress: () => {
+              setFotoPreview(null);
+              navigation.navigate('Carrinho');
+            },
+          },
+        ]);
+      } else {
+        Alert.alert('Aviso', 'Essa foto ja esta no carrinho.');
+      }
+
+      setFotoPreview(null);
+    } catch (err: unknown) {
+      Alert.alert(
+        'Erro',
+        err instanceof Error && err.message.trim().length > 0
+          ? err.message
+          : 'Nao foi possivel adicionar ao carrinho.',
+      );
+    } finally {
+      setAddingToCart(false);
+      addLockRef.current = false;
+    }
+  };
+
   const fotosSelecionadas = fotos.filter((f) => f.selecionada).length;
   const totalSelecionado = fotos
     .filter((f) => f.selecionada)
@@ -250,7 +303,7 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
               <TouchableOpacity
                 key={foto.id}
                 style={styles.photoContainer}
-                onPress={() => !addingToCart && modoSelecao && toggleSelecao(foto.id)}
+                onPress={() => handleOpenPreview(foto)}
                 disabled={addingToCart}
               >
                 <Image source={foto.url} style={styles.photo} />
@@ -305,6 +358,63 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
           </TouchableOpacity>
         </View>
       )}
+
+      <Modal
+        visible={Boolean(fotoPreview)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFotoPreview(null)}
+      >
+        <View style={styles.previewBackdrop}>
+          <View style={styles.previewCard}>
+            <TouchableOpacity
+              style={styles.previewCloseButton}
+              onPress={() => setFotoPreview(null)}
+              disabled={addingToCart}
+            >
+              <Ionicons name="close" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            {fotoPreview && (
+              <>
+                <Image source={fotoPreview.url} style={styles.previewImage} resizeMode="cover" />
+                <View style={styles.previewInfo}>
+                  <Text style={styles.previewPrice}>
+                    R$ {fotoPreview.unitPrice.toFixed(2).replace('.', ',')}
+                  </Text>
+
+                  {fotoPreview.comprada ? (
+                    <View style={styles.previewStatusRow}>
+                      <Ionicons name="checkmark-circle" size={18} color="#4CD964" />
+                      <Text style={styles.previewStatusText}>Foto ja comprada</Text>
+                    </View>
+                  ) : isInCart(fotoPreview.id) ? (
+                    <View style={styles.previewStatusRow}>
+                      <Ionicons name="cart" size={18} color="#D4A574" />
+                      <Text style={styles.previewStatusText}>Foto ja esta no carrinho</Text>
+                    </View>
+                  ) : null}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.previewAddButton,
+                      (fotoPreview.comprada || isInCart(fotoPreview.id) || addingToCart) &&
+                        styles.previewAddButtonDisabled,
+                    ]}
+                    onPress={() => { void handleAddPreviewToCart(); }}
+                    disabled={fotoPreview.comprada || isInCart(fotoPreview.id) || addingToCart}
+                  >
+                    <Ionicons name="cart" size={20} color="#000" />
+                    <Text style={styles.previewAddText}>
+                      {addingToCart ? 'Adicionando...' : 'Adicionar ao carrinho'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -535,6 +645,71 @@ const styles = StyleSheet.create({
   addToCartText: {
     color: '#000',
     fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  previewCard: {
+    backgroundColor: '#2E1A4A',
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#5B3A8F',
+  },
+  previewCloseButton: {
+    position: 'absolute',
+    zIndex: 2,
+    top: 12,
+    right: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    aspectRatio: 1,
+    backgroundColor: '#3A2259',
+  },
+  previewInfo: {
+    padding: 16,
+    gap: 12,
+  },
+  previewPrice: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  previewStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  previewStatusText: {
+    color: '#D8C8ED',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  previewAddButton: {
+    backgroundColor: '#D4A574',
+    minHeight: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  previewAddButtonDisabled: {
+    opacity: 0.5,
+  },
+  previewAddText: {
+    color: '#000',
+    fontSize: 15,
     fontWeight: '600',
     marginLeft: 8,
   },

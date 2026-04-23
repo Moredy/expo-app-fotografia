@@ -16,7 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
-import { useSignUp, useOAuth } from '@clerk/clerk-expo';
+import { useSignUp, useOAuth, useSignIn } from '@clerk/clerk-expo';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 
@@ -35,6 +35,31 @@ const getOAuthRedirectUrl = (): string => {
   return Linking.createURL('oauth-callback');
 };
 
+const translateClerkUiError = (raw?: string): string => {
+  const message = (raw || '').trim();
+  if (!message) return 'Não foi possível concluir a operação. Tente novamente.';
+
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('is incorrect') || normalized.includes('invalid code') || normalized.includes('code is invalid')) {
+    return 'Código incorreto. Verifique e tente novamente.';
+  }
+
+  if (normalized.includes('expired') || normalized.includes('too old')) {
+    return 'Código expirado. Solicite um novo código.';
+  }
+
+  if (normalized.includes('already exists')) {
+    return 'Já existe uma conta com esse e-mail.';
+  }
+
+  if (normalized.includes('too many requests') || normalized.includes('rate limit')) {
+    return 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+  }
+
+  return 'Não foi possível concluir a operação. Verifique os dados e tente novamente.';
+};
+
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const [fullName, setFullName] = useState<string>('');
@@ -42,22 +67,44 @@ export default function LoginScreen() {
   const [password, setPassword] = useState<string>('');
   const [verificationCode, setVerificationCode] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [showNewPassword, setShowNewPassword] = useState<boolean>(false);
   const [isSignUpMode, setIsSignUpMode] = useState<boolean>(false);
+  const [isResetPasswordMode, setIsResetPasswordMode] = useState<boolean>(false);
   const [pendingEmailVerification, setPendingEmailVerification] = useState<boolean>(false);
+  const [resetCode, setResetCode] = useState<string>('');
+  const [newPassword, setNewPassword] = useState<string>('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const oauthRedirectUrl = getOAuthRedirectUrl();
-  const { signIn, isLoading } = useAuth();
+  const { signIn, completeSecondFactor, pendingSecondFactor, isLoading } = useAuth();
+  const {
+    signIn: clerkResetSignIn,
+    setActive: setActiveResetSession,
+    isLoaded: resetSignInLoaded,
+  } = useSignIn();
   const { signUp, setActive, isLoaded: signUpLoaded } = useSignUp();
   const { startOAuthFlow: startGoogleOAuth } = useOAuth({ strategy: 'oauth_google' });
   const { startOAuthFlow: startAppleOAuth } = useOAuth({ strategy: 'oauth_apple' });
+  const isMfaMode = !isSignUpMode && !isResetPasswordMode && pendingSecondFactor;
 
   const resetToLoginMode = (): void => {
     setIsSignUpMode(false);
+    setIsResetPasswordMode(false);
     setPendingEmailVerification(false);
     setVerificationCode('');
+    setResetCode('');
+    setNewPassword('');
+    setConfirmNewPassword('');
     setFullName('');
-    setEmail('');
     setPassword('');
+  };
+
+  const resetForgotPasswordState = (): void => {
+    setIsResetPasswordMode(false);
+    setResetCode('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setShowNewPassword(false);
   };
 
   const handleLogin = async (): Promise<void> => {
@@ -70,8 +117,115 @@ export default function LoginScreen() {
     try {
       const result = await signIn(email, password);
       if (!result.success) {
-        Alert.alert('Erro', result.error || 'Falha ao fazer login');
+        if (result.requiresSecondFactor) {
+          setVerificationCode('');
+        }
+        if (!result.requiresSecondFactor) {
+          Alert.alert('Erro', result.error || 'Falha ao fazer login');
+        }
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompleteSecondFactor = async (): Promise<void> => {
+    setLoading(true);
+    try {
+      const result = await completeSecondFactor(verificationCode);
+      if (!result.success) {
+        Alert.alert('Erro', result.error || 'Não foi possível validar o MFA.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartForgotPassword = async (): Promise<void> => {
+    if (!email.trim()) {
+      Alert.alert('Erro', 'Informe seu e-mail para recuperar a senha.');
+      return;
+    }
+
+    if (!resetSignInLoaded) {
+      Alert.alert('Erro', 'Sistema de recuperação de senha não está pronto. Tente novamente.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await clerkResetSignIn.create({
+        strategy: 'reset_password_email_code',
+        identifier: email.trim(),
+      });
+
+      if (result.status === 'needs_first_factor') {
+        setIsResetPasswordMode(true);
+        setResetCode('');
+        Alert.alert('Código enviado', 'Enviamos um código de recuperação para seu e-mail.');
+        return;
+      }
+
+      Alert.alert('Erro', 'Não foi possível iniciar a recuperação de senha agora.');
+    } catch (error: any) {
+      const rawMessage =
+        error?.errors?.[0]?.message ||
+        error?.errors?.[0]?.longMessage ||
+        error?.message ||
+        'Não foi possível iniciar a recuperação de senha.';
+      const errorMessage = translateClerkUiError(rawMessage);
+      Alert.alert('Erro', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (): Promise<void> => {
+    if (!resetCode.trim()) {
+      Alert.alert('Erro', 'Informe o código enviado para seu e-mail.');
+      return;
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      Alert.alert('Erro', 'A nova senha deve ter pelo menos 8 caracteres.');
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      Alert.alert('Erro', 'As senhas não conferem.');
+      return;
+    }
+
+    if (!resetSignInLoaded) {
+      Alert.alert('Erro', 'Sistema de recuperação de senha não está pronto. Tente novamente.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await clerkResetSignIn.attemptFirstFactor({
+        strategy: 'reset_password_email_code',
+        code: resetCode.trim(),
+        password: newPassword,
+      });
+
+      if (result.status === 'complete' && result.createdSessionId) {
+        await setActiveResetSession?.({ session: result.createdSessionId });
+        Alert.alert('Senha redefinida', 'Sua senha foi atualizada com sucesso.');
+        resetForgotPasswordState();
+        setPassword('');
+        return;
+      }
+
+      Alert.alert('Atenção', 'Não foi possível concluir a redefinição de senha. Tente novamente.');
+    } catch (error: any) {
+      const rawMessage =
+        error?.errors?.[0]?.message ||
+        error?.errors?.[0]?.longMessage ||
+        error?.message ||
+        'Não foi possível redefinir a senha.';
+      const errorMessage = translateClerkUiError(rawMessage);
+      Alert.alert('Erro', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -131,7 +285,8 @@ export default function LoginScreen() {
       } else if (error?.message) {
         errorMessage = error.message;
       }
-      
+
+      errorMessage = translateClerkUiError(errorMessage);
       Alert.alert('Erro', errorMessage);
     } finally {
       setLoading(false);
@@ -164,11 +319,12 @@ export default function LoginScreen() {
 
       Alert.alert('Verificação pendente', 'Não foi possível concluir a verificação. Tente novamente.');
     } catch (error: any) {
-      const errorMessage =
+      const rawMessage =
         error?.errors?.[0]?.message ||
         error?.errors?.[0]?.longMessage ||
         error?.message ||
         'Código inválido ou expirado. Solicite um novo código.';
+      const errorMessage = translateClerkUiError(rawMessage);
       Alert.alert('Erro ao verificar código', errorMessage);
     } finally {
       setLoading(false);
@@ -186,11 +342,12 @@ export default function LoginScreen() {
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       Alert.alert('Código reenviado', 'Verifique seu e-mail para o novo código.');
     } catch (error: any) {
-      const errorMessage =
+      const rawMessage =
         error?.errors?.[0]?.message ||
         error?.errors?.[0]?.longMessage ||
         error?.message ||
         'Não foi possível reenviar o código agora.';
+      const errorMessage = translateClerkUiError(rawMessage);
       Alert.alert('Erro', errorMessage);
     } finally {
       setLoading(false);
@@ -204,6 +361,10 @@ export default function LoginScreen() {
       } else {
         await handleSignUp();
       }
+    } else if (isResetPasswordMode) {
+      await handleResetPassword();
+    } else if (isMfaMode) {
+      await handleCompleteSecondFactor();
     } else {
       await handleLogin();
     }
@@ -269,7 +430,11 @@ export default function LoginScreen() {
                     ? pendingEmailVerification
                       ? 'Verificar E-mail'
                       : 'Criar Conta'
-                    : 'Login'}
+                    : isResetPasswordMode
+                      ? 'Redefinir Senha'
+                    : isMfaMode
+                      ? 'Verificação MFA'
+                      : 'Login'}
                 </Text>
 
             <View style={styles.inputWrapper}>
@@ -315,6 +480,71 @@ export default function LoginScreen() {
                   />
                 </View>
               </>
+            ) : isResetPasswordMode ? (
+              <>
+                <Text style={styles.infoText}>
+                  Digite o código recebido por e-mail e informe sua nova senha.
+                </Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Código de recuperação"
+                    placeholderTextColor="#999"
+                    value={resetCode}
+                    onChangeText={setResetCode}
+                    keyboardType="number-pad"
+                    editable={!loading && !isLoading}
+                  />
+                </View>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Nova senha (mínimo 8 caracteres)"
+                    placeholderTextColor="#999"
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    secureTextEntry={!showNewPassword}
+                    editable={!loading && !isLoading}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeIcon}
+                    onPress={() => setShowNewPassword(!showNewPassword)}
+                  >
+                    <Ionicons
+                      name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={24}
+                      color="#999"
+                    />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Confirmar nova senha"
+                    placeholderTextColor="#999"
+                    value={confirmNewPassword}
+                    onChangeText={setConfirmNewPassword}
+                    secureTextEntry={!showNewPassword}
+                    editable={!loading && !isLoading}
+                  />
+                </View>
+              </>
+            ) : isMfaMode ? (
+              <>
+                <Text style={styles.infoText}>Digite o código do seu app autenticador para concluir o login.</Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Código MFA"
+                    placeholderTextColor="#999"
+                    value={verificationCode}
+                    onChangeText={setVerificationCode}
+                    keyboardType="number-pad"
+                    autoCapitalize="none"
+                    editable={!loading && !isLoading}
+                  />
+                </View>
+              </>
             ) : (
               <View style={styles.inputWrapper}>
                 <TextInput
@@ -352,10 +582,24 @@ export default function LoginScreen() {
                     ? pendingEmailVerification
                       ? 'Verificar código'
                       : 'Criar Conta'
-                    : 'Continuar'}
+                    : isResetPasswordMode
+                      ? 'Redefinir senha'
+                    : isMfaMode
+                      ? 'Validar MFA'
+                      : 'Continuar'}
                 </Text>
               )}
             </TouchableOpacity>
+
+            {isResetPasswordMode && (
+              <TouchableOpacity
+                style={styles.linkButton}
+                onPress={handleStartForgotPassword}
+                disabled={loading || isLoading}
+              >
+                <Text style={styles.linkText}>Reenviar código</Text>
+              </TouchableOpacity>
+            )}
 
             {isSignUpMode && pendingEmailVerification && (
               <TouchableOpacity
@@ -368,8 +612,12 @@ export default function LoginScreen() {
             )}
 
             {!isSignUpMode && (
-              <TouchableOpacity style={styles.linkButton}>
-                <Text style={styles.linkText}>Esqueceu a senha?</Text>
+              <TouchableOpacity
+                style={styles.linkButton}
+                onPress={isResetPasswordMode ? resetForgotPasswordState : handleStartForgotPassword}
+                disabled={loading || isLoading}
+              >
+                <Text style={styles.linkText}>{isResetPasswordMode ? 'Voltar ao login' : 'Esqueceu a senha?'}</Text>
               </TouchableOpacity>
             )}
 
@@ -405,11 +653,11 @@ export default function LoginScreen() {
                 if (isSignUpMode) {
                   resetToLoginMode();
                 } else {
+                  resetForgotPasswordState();
                   setIsSignUpMode(true);
                   setPendingEmailVerification(false);
                   setVerificationCode('');
                   setFullName('');
-                  setEmail('');
                   setPassword('');
                 }
               }}
