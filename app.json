@@ -36,13 +36,14 @@
     },
     "plugins": [
       [
+        "expo-adi-registration"
+      ],
+      [
         "expo-media-library",
         {
           "photosPermission": "Permita acesso as fotos para salvar suas imagens compradas.",
           "savePhotosPermission": "Permita salvar as fotos compradas no seu dispositivo.",
-          "granularPermissions": [
-            "photo"
-          ]
+          "granularPermissions": ["photo"]
         }
       ],
       "expo-secure-store",
