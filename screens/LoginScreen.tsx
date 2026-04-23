@@ -76,7 +76,15 @@ export default function LoginScreen() {
   const [confirmNewPassword, setConfirmNewPassword] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const oauthRedirectUrl = getOAuthRedirectUrl();
-  const { signIn, completeSecondFactor, pendingSecondFactor, isLoading } = useAuth();
+  const {
+    signIn,
+    completeSecondFactor,
+    secondFactorStrategy,
+    resetSecondFactor,
+    resendSecondFactorCode,
+    pendingSecondFactor,
+    isLoading,
+  } = useAuth();
   const {
     signIn: clerkResetSignIn,
     setActive: setActiveResetSession,
@@ -91,6 +99,7 @@ export default function LoginScreen() {
     setIsSignUpMode(false);
     setIsResetPasswordMode(false);
     setPendingEmailVerification(false);
+    resetSecondFactor();
     setVerificationCode('');
     setResetCode('');
     setNewPassword('');
@@ -136,6 +145,21 @@ export default function LoginScreen() {
       if (!result.success) {
         Alert.alert('Erro', result.error || 'Não foi possível validar o MFA.');
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendSecondFactorCode = async (): Promise<void> => {
+    setLoading(true);
+    try {
+      const result = await resendSecondFactorCode();
+      if (!result.success) {
+        Alert.alert('Erro', result.error || 'Nao foi possivel reenviar o codigo.');
+        return;
+      }
+
+      Alert.alert('Codigo reenviado', 'Enviamos um novo codigo para o seu e-mail.');
     } finally {
       setLoading(false);
     }
@@ -433,7 +457,9 @@ export default function LoginScreen() {
                     : isResetPasswordMode
                       ? 'Redefinir Senha'
                     : isMfaMode
-                      ? 'Verificação MFA'
+                      ? secondFactorStrategy === 'email_code'
+                        ? 'Verificação por E-mail'
+                        : 'Verificação MFA'
                       : 'Login'}
                 </Text>
 
@@ -531,11 +557,15 @@ export default function LoginScreen() {
               </>
             ) : isMfaMode ? (
               <>
-                <Text style={styles.infoText}>Digite o código do seu app autenticador para concluir o login.</Text>
+                <Text style={styles.infoText}>
+                  {secondFactorStrategy === 'email_code'
+                    ? 'Digite o codigo enviado para seu e-mail para concluir o login.'
+                    : 'Digite o codigo do seu app autenticador para concluir o login.'}
+                </Text>
                 <View style={styles.inputWrapper}>
                   <TextInput
                     style={styles.input}
-                    placeholder="Código MFA"
+                    placeholder={secondFactorStrategy === 'email_code' ? 'Codigo recebido por e-mail' : 'Codigo MFA'}
                     placeholderTextColor="#999"
                     value={verificationCode}
                     onChangeText={setVerificationCode}
@@ -585,11 +615,21 @@ export default function LoginScreen() {
                     : isResetPasswordMode
                       ? 'Redefinir senha'
                     : isMfaMode
-                      ? 'Validar MFA'
+                      ? 'Validar codigo'
                       : 'Continuar'}
                 </Text>
               )}
             </TouchableOpacity>
+
+            {isMfaMode && secondFactorStrategy === 'email_code' && (
+              <TouchableOpacity
+                style={styles.linkButton}
+                onPress={handleResendSecondFactorCode}
+                disabled={loading || isLoading}
+              >
+                <Text style={styles.linkText}>Reenviar codigo</Text>
+              </TouchableOpacity>
+            )}
 
             {isResetPasswordMode && (
               <TouchableOpacity
@@ -614,10 +654,12 @@ export default function LoginScreen() {
             {!isSignUpMode && (
               <TouchableOpacity
                 style={styles.linkButton}
-                onPress={isResetPasswordMode ? resetForgotPasswordState : handleStartForgotPassword}
+                onPress={isMfaMode ? resetToLoginMode : isResetPasswordMode ? resetForgotPasswordState : handleStartForgotPassword}
                 disabled={loading || isLoading}
               >
-                <Text style={styles.linkText}>{isResetPasswordMode ? 'Voltar ao login' : 'Esqueceu a senha?'}</Text>
+                <Text style={styles.linkText}>
+                  {isMfaMode ? 'Voltar ao login' : isResetPasswordMode ? 'Voltar ao login' : 'Esqueceu a senha?'}
+                </Text>
               </TouchableOpacity>
             )}
 

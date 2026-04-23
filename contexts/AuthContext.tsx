@@ -13,6 +13,9 @@ interface AuthContextData {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string; requiresSecondFactor?: boolean }>;
   completeSecondFactor: (code: string) => Promise<{ success: boolean; error?: string }>;
+  secondFactorStrategy: 'totp' | 'email_code' | null;
+  resetSecondFactor: () => void;
+  resendSecondFactorCode: () => Promise<{ success: boolean; error?: string }>;
   pendingSecondFactor: boolean;
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
@@ -35,6 +38,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [phoneSyncRequired, setPhoneSyncRequired] = useState(false);
   const [isSyncingProfile, setIsSyncingProfile] = useState(false);
   const [pendingSecondFactor, setPendingSecondFactor] = useState(false);
+  const [secondFactorStrategy, setSecondFactorStrategy] = useState<'totp' | 'email_code' | null>(null);
 
   const parseSyncErrorMessage = (raw: string, fallback: string): string => {
     if (!raw || raw.trim().length === 0) return fallback;
@@ -128,6 +132,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
 
     return 'Não foi possível validar o código. Confira e tente novamente.';
+  };
+
+  const logClerkRawError = (scope: string, error: unknown): void => {
+    const err = error as any;
+    const details = {
+      scope,
+      message: err?.message ?? null,
+      code: err?.code ?? null,
+      status: err?.status ?? null,
+      clerkTraceId: err?.clerkTraceId ?? null,
+      errors: Array.isArray(err?.errors) ? err.errors : null,
+      meta: err?.meta ?? null,
+      rawType: typeof error,
+    };
+
+    try {
+      console.error(`[CLERK RAW ERROR] ${scope}: ${JSON.stringify(details, null, 2)}`);
+    } catch {
+      console.error(`[CLERK RAW ERROR] ${scope}:`, details);
+    }
   };
 
   const getIncompleteAuthMessage = (status?: string | null): string => {
@@ -293,6 +317,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return { success: false, error: 'Autenticação não está pronta' };
     }
 
+    // Evita manter estado de MFA de uma tentativa anterior.
+    setPendingSecondFactor(false);
+    setSecondFactorStrategy(null);
+
     try {
       const result = await clerkSignIn.create({
         identifier: email,
@@ -302,8 +330,56 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (result.status === 'complete') {
         await setActiveSignInSession?.({ session: result.createdSessionId });
         setPendingSecondFactor(false);
+        setSecondFactorStrategy(null);
         return { success: true };
       } else if (result.status === 'needs_second_factor') {
+        const supportedSecondFactors = Array.isArray((result as any)?.supportedSecondFactors)
+          ? ((result as any).supportedSecondFactors as Array<{ strategy?: string; primary?: boolean }>)
+          : [];
+
+        try {
+          console.warn(
+            `[CLERK SIGNIN STATUS] needs_second_factor: ${JSON.stringify(
+              {
+                status: result.status,
+                supportedSecondFactors,
+              },
+              null,
+              2,
+            )}`,
+          );
+        } catch {
+          console.warn('[CLERK SIGNIN STATUS] needs_second_factor (nao serializavel)');
+        }
+
+        const primaryFactor = supportedSecondFactors.find((factor) => factor?.primary);
+        const preferredStrategy =
+          primaryFactor?.strategy === 'email_code' || primaryFactor?.strategy === 'totp'
+            ? primaryFactor.strategy
+            : supportedSecondFactors.some((factor) => factor?.strategy === 'email_code')
+              ? 'email_code'
+              : supportedSecondFactors.some((factor) => factor?.strategy === 'totp')
+                ? 'totp'
+                : null;
+
+        if (!preferredStrategy) {
+          return {
+            success: false,
+            requiresSecondFactor: false,
+            error:
+              'Sua conta exige segundo fator, mas o app nao encontrou um metodo MFA compativel. Verifique o Two-step verification do usuario no Clerk.',
+          };
+        }
+
+        if (preferredStrategy === 'email_code') {
+          try {
+            await (clerkSignIn as any)?.prepareSecondFactor?.({ strategy: 'email_code' });
+          } catch (prepareError) {
+            logClerkRawError('signIn.prepareSecondFactor(email_code)', prepareError);
+          }
+        }
+
+        setSecondFactorStrategy(preferredStrategy);
         setPendingSecondFactor(true);
         return {
           success: false,
@@ -311,17 +387,47 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           error: getIncompleteAuthMessage(result.status),
         };
       } else {
+        setPendingSecondFactor(false);
+        setSecondFactorStrategy(null);
         const statusMessage = getIncompleteAuthMessage(result.status);
         console.warn(`Login retornou status não finalizado: ${result.status}`);
         return { success: false, error: statusMessage };
       }
     } catch (error: any) {
+      setPendingSecondFactor(false);
+      setSecondFactorStrategy(null);
+      logClerkRawError('signIn.create', error);
       const errorCode = error?.errors?.[0]?.code || error?.code || 'desconhecido';
       console.error(`Erro ao fazer login (codigo: ${errorCode})`);
 
       // Tratamento de erros específicos do Clerk
       const rawErrorMessage = error?.errors?.[0]?.message || error?.message;
       const errorMessage = translateAuthErrorMessage(rawErrorMessage);
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  const resetSecondFactor = (): void => {
+    setPendingSecondFactor(false);
+    setSecondFactorStrategy(null);
+  };
+
+  const resendSecondFactorCode = async (): Promise<{ success: boolean; error?: string }> => {
+    if (!signInLoaded) {
+      return { success: false, error: 'Autenticação não está pronta' };
+    }
+
+    if (secondFactorStrategy !== 'email_code') {
+      return { success: false, error: 'Reenvio disponível apenas para código por e-mail.' };
+    }
+
+    try {
+      await (clerkSignIn as any)?.prepareSecondFactor?.({ strategy: 'email_code' });
+      return { success: true };
+    } catch (error: any) {
+      logClerkRawError('signIn.prepareSecondFactor(email_code resend)', error);
+      const rawErrorMessage = error?.errors?.[0]?.message || error?.message;
+      const errorMessage = translateVerificationErrorMessage(rawErrorMessage);
       return { success: false, error: errorMessage };
     }
   };
@@ -337,19 +443,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
 
     try {
+      const strategy = secondFactorStrategy ?? 'totp';
       const result = await clerkSignIn.attemptSecondFactor({
-        strategy: 'totp',
+        strategy,
         code: normalizedCode,
       });
 
       if (result.status === 'complete') {
         await setActiveSignInSession?.({ session: result.createdSessionId });
         setPendingSecondFactor(false);
+        setSecondFactorStrategy(null);
         return { success: true };
       }
 
       return { success: false, error: getIncompleteAuthMessage(result.status) };
     } catch (error: any) {
+      logClerkRawError('signIn.attemptSecondFactor', error);
       const rawErrorMessage = error?.errors?.[0]?.message || error?.message;
       const errorMessage = translateVerificationErrorMessage(rawErrorMessage);
       return { success: false, error: errorMessage };
@@ -362,6 +471,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setPhoneSyncRequired(false);
       setIsSyncingProfile(false);
       setPendingSecondFactor(false);
+      setSecondFactorStrategy(null);
       syncedUserIdRef.current = null;
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
@@ -389,6 +499,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isLoading: !userLoaded || !signInLoaded,
         signIn,
         completeSecondFactor,
+        secondFactorStrategy,
+        resetSecondFactor,
+        resendSecondFactorCode,
         pendingSecondFactor,
         signOut,
         isAuthenticated: !!clerkUser,
