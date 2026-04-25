@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUser } from '@clerk/clerk-expo';
+import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { ProfileScreenNavigationProp } from '../navigation/types';
@@ -23,6 +24,7 @@ interface ProfileScreenProps {
 export default function ProfileScreen({ navigation }: ProfileScreenProps) {
   const { user, signOut, submitPhoneForSync } = useAuth();
   const { user: clerkUser, isLoaded: isClerkLoaded } = useUser();
+  const { getToken } = useClerkAuth();
 
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [isPasswordModalVisible, setIsPasswordModalVisible] = useState(false);
@@ -33,6 +35,9 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
 
   const extractTaxId = (): string | null => {
     if (!clerkUser) return null;
@@ -183,6 +188,93 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
     }
   };
 
+  const performDeleteAccount = async () => {
+    if (isDeletingAccount) return;
+
+    setIsDeletingAccount(true);
+    try {
+      const token = await getToken({ skipCache: true });
+      if (!token) {
+        Alert.alert('Sessão expirada', 'Faça login novamente para excluir sua conta.');
+        return;
+      }
+
+      const response = await fetch(`${baseUrl}/users/me/delete-account`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          reason: 'Exclusão solicitada pelo usuário no app',
+        }),
+      });
+
+      if (!response.ok) {
+        let message = `Erro ${response.status}: ${response.statusText}`;
+        try {
+          const rawBody = await response.text();
+          const parsed = rawBody ? JSON.parse(rawBody) : null;
+          if (typeof parsed?.message === 'string' && parsed.message.trim()) {
+            message = parsed.message;
+          } else if (typeof parsed?.error === 'string' && parsed.error.trim()) {
+            message = parsed.error;
+          } else if (rawBody.trim()) {
+            message = rawBody.trim();
+          }
+        } catch {
+          // Mantém mensagem padrão quando a resposta não é JSON
+        }
+
+        throw new Error(message);
+      }
+
+      Alert.alert('Conta excluída', 'Sua conta e seus dados foram removidos com sucesso.', [
+        {
+          text: 'OK',
+          onPress: () => {
+            void signOut();
+          },
+        },
+      ]);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Não foi possível excluir sua conta.';
+      Alert.alert('Erro ao excluir conta', message);
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      'Excluir minha conta',
+      'Essa ação é permanente e removerá seu acesso e dados. Deseja continuar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Confirmação final',
+              'Tem certeza absoluta? Esta ação não pode ser desfeita.',
+              [
+                { text: 'Voltar', style: 'cancel' },
+                {
+                  text: 'Excluir definitivamente',
+                  style: 'destructive',
+                  onPress: () => {
+                    void performDeleteAccount();
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
+  };
+
   if (!isClerkLoaded) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -266,6 +358,26 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
             <Text style={styles.actionButtonText}>Alterar Senha</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color="#B8A0D4" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionButton, styles.deleteActionButton, isDeletingAccount && styles.disabledButton]}
+          onPress={confirmDeleteAccount}
+          disabled={isDeletingAccount}
+        >
+          <View style={styles.actionButtonLeft}>
+            <View style={styles.deleteActionIconBadge}>
+              <Ionicons name="trash-outline" size={16} color="#FF8A80" />
+            </View>
+            <Text style={styles.deleteActionButtonText}>
+              {isDeletingAccount ? 'Excluindo conta...' : 'Excluir Minha Conta'}
+            </Text>
+          </View>
+          {isDeletingAccount ? (
+            <ActivityIndicator size="small" color="#FFB4AE" />
+          ) : (
+            <Ionicons name="chevron-forward" size={18} color="#FFB4AE" />
+          )}
         </TouchableOpacity>
         
       </View>
@@ -536,6 +648,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  deleteActionButton: {
+    borderColor: 'rgba(255,138,128,0.45)',
+    backgroundColor: 'rgba(94,28,28,0.45)',
+  },
+  deleteActionIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,138,128,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteActionButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFCDC9',
+  },
+  disabledButton: {
+    opacity: 0.7,
   },
   logoutButton: {
     marginTop: 8,
