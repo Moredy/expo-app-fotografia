@@ -9,10 +9,12 @@ import {
   Dimensions,
   Platform,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 import { Evento } from '../data/mockData';
@@ -55,35 +57,96 @@ function mapApiEventToEvento(e: ApiEvent): Evento {
 }
 
 export default function HomeScreen({ navigation }: HomeScreenProps) {
-  const { user } = useAuth();
+  const { user, phoneSyncRequired } = useAuth();
   const { getCartCount } = useCart();
   const tabBarHeight = useBottomTabBarHeight();
   const cartCount = getCartCount();
   const { getToken } = useClerkAuth();
   const [eventos, setEventos] = useState<Evento[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState<string | null>(null);
   const getTokenRef = useRef(getToken);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     getTokenRef.current = getToken;
   }, [getToken]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadEventos = React.useCallback(async (opts?: { silent?: boolean }): Promise<boolean> => {
+    const silent = opts?.silent ?? false;
 
-    getEvents(async () => {
-      const fresh = await getTokenRef.current({ skipCache: true });
-      return fresh ?? getTokenRef.current();
-    })
-      .then((data: ApiEvent[]) => {
-        if (cancelled) return;
-        setEventos(data.map((event) => mapApiEventToEvento(event)));
-      })
-      .catch(() => {});
+    if (!silent && mountedRef.current) {
+      setEventsLoading(true);
+    }
+
+    if (mountedRef.current) {
+      setEventsError(null);
+    }
+
+    try {
+      const data = await getEvents(async () => {
+        const fresh = await getTokenRef.current({ skipCache: true });
+        return fresh ?? getTokenRef.current();
+      });
+
+      if (!mountedRef.current) return false;
+      setEventos(data.map((event) => mapApiEventToEvento(event)));
+      setEventsError(null);
+      return true;
+    } catch (err: unknown) {
+      if (!mountedRef.current) return false;
+      const message = err instanceof Error ? err.message : 'Não foi possível carregar os eventos agora.';
+      setEventsError(message);
+      return false;
+    } finally {
+      if (!silent && mountedRef.current) {
+        setEventsLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id || phoneSyncRequired) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    const fetchWithRetry = async () => {
+      const success = await loadEventos();
+      if (success || cancelled) return;
+
+      attempts += 1;
+      if (attempts < maxAttempts) {
+        retryTimer = setTimeout(() => {
+          void fetchWithRetry();
+        }, 1200);
+      }
+    };
+
+    void fetchWithRetry();
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, []);
+  }, [loadEventos, user?.id, phoneSyncRequired]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.id || phoneSyncRequired) return undefined;
+      void loadEventos({ silent: true });
+      return undefined;
+    }, [loadEventos, user?.id, phoneSyncRequired]),
+  );
 
   const getGreeting = (): string => {
     const hour = new Date().getHours();
@@ -161,27 +224,49 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             </TouchableOpacity>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.horizontalScroll}
-          >
-            {eventos.map((evento) => (
+          {eventsLoading && eventos.length === 0 ? (
+            <View style={styles.eventsFeedbackContainer}>
+              <ActivityIndicator size="small" color="#D4A574" />
+            </View>
+          ) : eventsError && eventos.length === 0 ? (
+            <View style={styles.errorCard}>
+              <Text style={styles.errorText}>{eventsError}</Text>
               <TouchableOpacity
-                key={evento.id}
-                style={styles.eventCard}
-                onPress={() => navigation.navigate('EventoDetalhes', { evento })}
+                style={styles.retryButton}
+                onPress={() => {
+                  void loadEventos();
+                }}
               >
-                <Image source={evento.imagem} style={styles.eventImage} />
-                <View style={styles.eventInfo}>
-                  <Text style={styles.eventTitle} numberOfLines={2}>
-                    {evento.titulo}
-                  </Text>
-                  <Text style={styles.eventDate}>{evento.dataRelativa}</Text>
-                </View>
+                <Text style={styles.retryButtonText}>Tentar novamente</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+            </View>
+          ) : eventos.length === 0 ? (
+            <View style={styles.eventsFeedbackContainer}>
+              <Text style={styles.emptyEventsText}>Nenhum evento disponível no momento.</Text>
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.horizontalScroll}
+            >
+              {eventos.map((evento) => (
+                <TouchableOpacity
+                  key={evento.id}
+                  style={styles.eventCard}
+                  onPress={() => navigation.navigate('EventoDetalhes', { evento })}
+                >
+                  <Image source={evento.imagem} style={styles.eventImage} />
+                  <View style={styles.eventInfo}>
+                    <Text style={styles.eventTitle} numberOfLines={2}>
+                      {evento.titulo}
+                    </Text>
+                    <Text style={styles.eventDate}>{evento.dataRelativa}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -315,6 +400,41 @@ const styles = StyleSheet.create({
   },
   horizontalScroll: {
     paddingLeft: 20,
+  },
+  eventsFeedbackContainer: {
+    minHeight: 84,
+    marginHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorCard: {
+    marginHorizontal: 20,
+    borderRadius: 14,
+    padding: 14,
+    backgroundColor: '#4A2F73',
+    borderWidth: 1,
+    borderColor: '#6D4A99',
+  },
+  errorText: {
+    color: '#F8E9FF',
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  retryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#D4A574',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  retryButtonText: {
+    color: '#2D1A47',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  emptyEventsText: {
+    color: '#C9B6E8',
+    fontSize: 14,
   },
   eventCard: {
     width: width * 0.7,

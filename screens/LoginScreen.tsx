@@ -53,6 +53,22 @@ const translateClerkUiError = (raw?: string): string => {
     return 'Já existe uma conta com esse e-mail.';
   }
 
+  if (
+    (normalized.includes('email') && normalized.includes('is taken')) ||
+    normalized.includes('email address is taken') ||
+    normalized.includes('already in use')
+  ) {
+    return 'Este e-mail já está em uso. Tente outro e-mail.';
+  }
+
+  if (
+    normalized.includes('data breach') ||
+    normalized.includes('password has been found in an online data breach') ||
+    normalized.includes('compromised password')
+  ) {
+    return 'Essa senha apareceu em vazamentos de dados. Para sua segurança, escolha uma senha diferente.';
+  }
+
   if (normalized.includes('too many requests') || normalized.includes('rate limit')) {
     return 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
   }

@@ -70,6 +70,16 @@ export interface ApiSubscription {
   cancelledAt?: string | null;
 }
 
+export interface ApiMonthlySubscriptionPrice {
+  productId: string;
+  name: string;
+  cycle: string;
+  currency: string;
+  status: string;
+  priceCents: number;
+  price: number;
+}
+
 // ─── Eventos ──────────────────────────────────────────────────────────────────
 
 export interface ApiEvent {

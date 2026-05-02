@@ -3,6 +3,7 @@ import {
   CreateOrderCheckoutResponse,
   CreateSubscriptionCheckoutRequest,
   CreateSubscriptionCheckoutResponse,
+  ApiMonthlySubscriptionPrice,
   ApiOrder,
   ApiSubscription,
 } from '../types/payment';
@@ -214,6 +215,19 @@ export async function getSubscriptions(getToken: GetToken): Promise<ApiSubscript
     headers: await resolveAuthHeaders(getToken),
   });
   return handleResponse<ApiSubscription[]>(response);
+}
+
+/**
+ * Busca o preco mensal atual da assinatura.
+ */
+export async function getMonthlySubscriptionPrice(
+  getToken: GetToken,
+): Promise<ApiMonthlySubscriptionPrice> {
+  const response = await fetchWithTimeout(`${BASE_URL}/subscriptions/monthly-price`, {
+    method: 'GET',
+    headers: await resolveAuthHeaders(getToken),
+  });
+  return handleResponse<ApiMonthlySubscriptionPrice>(response);
 }
 
 /**

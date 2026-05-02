@@ -18,8 +18,13 @@ import { ClubScreenNavigationProp } from '../navigation/types';
 import { useSubscriptionCheckout } from '../hooks/useCheckout';
 import Toast from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
-import { ApiSubscription } from '../types/payment';
-import { cancelSubscription, getSubscriptions, getUserSubscriptions } from '../services/paymentService';
+import { ApiMonthlySubscriptionPrice, ApiSubscription } from '../types/payment';
+import {
+  cancelSubscription,
+  getMonthlySubscriptionPrice,
+  getSubscriptions,
+  getUserSubscriptions,
+} from '../services/paymentService';
 
 interface ClubScreenProps {
   navigation: ClubScreenNavigationProp;
@@ -32,14 +37,17 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
   const getTokenRef = React.useRef(getToken);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [monthlyPlanName, setMonthlyPlanName] = useState<string>(clubInfo.titulo);
+  const [monthlyPrice, setMonthlyPrice] = useState<number | null>(null);
   const [isLoadingSubscription, setIsLoadingSubscription] = useState<boolean>(true);
+  const [isLoadingMonthlyPrice, setIsLoadingMonthlyPrice] = useState<boolean>(true);
   const [activeSubscription, setActiveSubscription] = useState<ApiSubscription | null>(null);
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
 
   const { state: checkoutState, error: checkoutError, startCheckout } = useSubscriptionCheckout({
     quantity: 1,
-    planName: clubInfo.titulo,
-    price: clubInfo.preco,
+    planName: monthlyPlanName,
+    price: monthlyPrice ?? clubInfo.preco,
     interval: 'month',
     onSuccess: () => {
       navigation.replace('CheckoutSuccess', { type: 'subscription' });
@@ -121,9 +129,37 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
     }
   }, [getStableToken, isAuthLoading, userId]);
 
+  const loadMonthlyPrice = React.useCallback(async () => {
+    if (isAuthLoading) return;
+
+    if (!userId) {
+      setIsLoadingMonthlyPrice(false);
+      return;
+    }
+
+    setIsLoadingMonthlyPrice(true);
+    try {
+      const monthlyPriceResponse: ApiMonthlySubscriptionPrice = await getMonthlySubscriptionPrice(getStableToken);
+      if (typeof monthlyPriceResponse.name === 'string' && monthlyPriceResponse.name.trim().length > 0) {
+        setMonthlyPlanName(monthlyPriceResponse.name.trim());
+      }
+      if (typeof monthlyPriceResponse.price === 'number' && Number.isFinite(monthlyPriceResponse.price)) {
+        setMonthlyPrice(monthlyPriceResponse.price);
+      }
+    } catch {
+      // Mantem fallback local em caso de erro de rede/API.
+    } finally {
+      setIsLoadingMonthlyPrice(false);
+    }
+  }, [getStableToken, isAuthLoading, userId]);
+
   React.useEffect(() => {
     void loadActiveSubscription();
   }, [loadActiveSubscription]);
+
+  React.useEffect(() => {
+    void loadMonthlyPrice();
+  }, [loadMonthlyPrice]);
 
   const handleCancelSubscription = () => {
     if (!activeSubscription || isCancelling) return;
@@ -164,7 +200,17 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
   };
 
   const shouldDisableCheckout =
-    isLoading || isLoadingSubscription || isAuthLoading || Boolean(activeSubscription);
+    isLoading || isLoadingSubscription || isLoadingMonthlyPrice || isAuthLoading || Boolean(activeSubscription);
+
+  const formattedMonthlyPrice =
+    monthlyPrice === null
+      ? null
+      : monthlyPrice.toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
 
   const formatDate = (value?: string | null): string => {
     if (!value) return '-';
@@ -219,7 +265,14 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
 
         <View style={styles.content}>
           <Text style={styles.priceLabel}>{clubInfo.mensalidade}</Text>
-          <Text style={styles.price}>R$ {clubInfo.preco.toFixed(2)}</Text>
+          {isLoadingMonthlyPrice || monthlyPrice === null ? (
+            <View style={styles.priceLoadingRow}>
+              <ActivityIndicator color="#D4A574" size="small" />
+              <Text style={styles.priceLoadingText}>Carregando preço...</Text>
+            </View>
+          ) : (
+            <Text style={styles.price}>{formattedMonthlyPrice}</Text>
+          )}
 
           {isLoadingSubscription ? (
             <View style={styles.subscriptionStateBox}>
@@ -260,7 +313,7 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
               ) : activeSubscription ? (
                 <Text style={styles.subscribeButtonText}>Você já possui assinatura ativa</Text>
               ) : (
-                <Text style={styles.subscribeButtonText}>Assinar {clubInfo.titulo}</Text>
+                <Text style={styles.subscribeButtonText}>Assinar VL Club</Text>
               )}
             </TouchableOpacity>
 
@@ -372,6 +425,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     textAlign: 'center',
     marginBottom: 30,
+  },
+  priceLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 30,
+    minHeight: 58,
+  },
+  priceLoadingText: {
+    color: '#D4A574',
+    fontSize: 16,
+    fontWeight: '600',
   },
   subscribeButton: {
     backgroundColor: '#D4A574',
