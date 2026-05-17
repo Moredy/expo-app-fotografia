@@ -165,6 +165,7 @@ export default function Navigation() {
     phoneSyncRequired,
     submitPhoneForSync,
     isSyncingProfile,
+    signOut,
   } = useAuth();
   const [phoneInput, setPhoneInput] = React.useState('');
   const [taxIdInput, setTaxIdInput] = React.useState('');
@@ -185,6 +186,12 @@ export default function Navigation() {
     }
     setPhoneInput('');
     setTaxIdInput('');
+  };
+
+  const handleSignOutFromModal = async () => {
+    setPhoneInput('');
+    setTaxIdInput('');
+    await signOut();
   };
 
   return (
@@ -289,6 +296,14 @@ export default function Navigation() {
                   <Text style={styles.phoneSubmitButtonText}>Salvar telefone</Text>
                 )}
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.phoneLogoutButton, isSyncingProfile && styles.phoneSubmitButtonDisabled]}
+                onPress={() => { void handleSignOutFromModal(); }}
+                disabled={isSyncingProfile}
+              >
+                <Text style={styles.phoneLogoutButtonText}>Sair da conta</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -366,5 +381,20 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 16,
     fontWeight: '700',
+  },
+  phoneLogoutButton: {
+    marginTop: 10,
+    borderRadius: 10,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#BFA3DF',
+    backgroundColor: 'transparent',
+  },
+  phoneLogoutButtonText: {
+    color: '#E5D8F5',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

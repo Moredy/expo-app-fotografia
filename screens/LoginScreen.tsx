@@ -12,6 +12,9 @@ import {
   Alert,
   ImageBackground,
   Image,
+  Keyboard,
+  InputAccessoryView,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
@@ -23,6 +26,7 @@ import * as Linking from 'expo-linking';
 WebBrowser.maybeCompleteAuthSession();
 
 const LOGIN_CONTAINER_PURPLE = '#4A2F73';
+const IOS_NUMBER_PAD_ACCESSORY_ID = 'ios-number-pad-accessory';
 
 const getOAuthRedirectUrl = (): string => {
   const envRedirectUrl = process.env.EXPO_PUBLIC_CLERK_OAUTH_REDIRECT_URL?.trim();
@@ -395,6 +399,8 @@ export default function LoginScreen() {
   };
 
   const handleSubmit = async (): Promise<void> => {
+    Keyboard.dismiss();
+
     if (isSignUpMode) {
       if (pendingEmailVerification) {
         await handleVerifyEmailCode();
@@ -438,6 +444,14 @@ export default function LoginScreen() {
     }
   };
 
+  const numberPadProps =
+    Platform.OS === 'ios'
+      ? {
+          inputAccessoryViewID: IOS_NUMBER_PAD_ACCESSORY_ID,
+          returnKeyType: 'done' as const,
+        }
+      : {};
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
@@ -449,13 +463,15 @@ export default function LoginScreen() {
           style={styles.background}
           blurRadius={3}
         >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            bounces={false}
-          >
-            <View style={styles.overlay}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              bounces={false}
+            >
+              <View style={styles.overlay}>
               <View style={styles.logoContainer}>
                 <Image
                   source={require('../assets/logos/logo_branca.png')}
@@ -519,6 +535,7 @@ export default function LoginScreen() {
                     keyboardType="number-pad"
                     maxLength={6}
                     editable={!loading && !isLoading}
+                    {...numberPadProps}
                   />
                 </View>
               </>
@@ -536,6 +553,7 @@ export default function LoginScreen() {
                     onChangeText={setResetCode}
                     keyboardType="number-pad"
                     editable={!loading && !isLoading}
+                    {...numberPadProps}
                   />
                 </View>
                 <View style={styles.inputWrapper}>
@@ -588,6 +606,7 @@ export default function LoginScreen() {
                     keyboardType="number-pad"
                     autoCapitalize="none"
                     editable={!loading && !isLoading}
+                    {...numberPadProps}
                   />
                 </View>
               </>
@@ -708,6 +727,8 @@ export default function LoginScreen() {
             <TouchableOpacity 
               style={styles.createAccountButton}
               onPress={() => {
+                Keyboard.dismiss();
+
                 if (isSignUpMode) {
                   resetToLoginMode();
                 } else {
@@ -735,8 +756,18 @@ export default function LoginScreen() {
                   <Text style={styles.termsLink}>Política de privacidade</Text>.
                 </Text>
               </View>
-            </View>
-          </ScrollView>
+              </View>
+            </ScrollView>
+          </TouchableWithoutFeedback>
+          {Platform.OS === 'ios' && (
+            <InputAccessoryView nativeID={IOS_NUMBER_PAD_ACCESSORY_ID}>
+              <View style={styles.keyboardAccessory}>
+                <TouchableOpacity onPress={Keyboard.dismiss}>
+                  <Text style={styles.keyboardAccessoryText}>Concluir</Text>
+                </TouchableOpacity>
+              </View>
+            </InputAccessoryView>
+          )}
         </ImageBackground>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -856,6 +887,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     textDecorationLine: 'underline',
+  },
+  keyboardAccessory: {
+    backgroundColor: '#f2f2f7',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#c7c7cc',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: 'flex-end',
+  },
+  keyboardAccessoryText: {
+    color: '#007aff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   socialButton: {
     flexDirection: 'row',

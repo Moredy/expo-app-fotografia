@@ -84,6 +84,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return raw;
   };
 
+  const isProfileDataRequiredError = (raw: string): boolean => {
+    const text = (raw || '').toLowerCase();
+    if (!text) return false;
+
+    const mentionsDocument =
+      text.includes('taxid') ||
+      text.includes('cpf') ||
+      text.includes('cnpj') ||
+      text.includes('document');
+    const mentionsPhone = text.includes('phone') || text.includes('telefone');
+    const mentionsRequiredState =
+      text.includes('obrigatorio') ||
+      text.includes('obrigatório') ||
+      text.includes('required') ||
+      text.includes('missing') ||
+      text.includes('expected property');
+
+    return (mentionsDocument || mentionsPhone) && mentionsRequiredState;
+  };
+
   const translateAuthErrorMessage = (raw?: string): string => {
     const message = (raw || '').trim();
     if (!message) return 'Não foi possível fazer login. Tente novamente.';
@@ -213,12 +233,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const resolvedPhone = rawPhone ? String(rawPhone).replace(/\D/g, '') : null;
     const resolvedTaxId = rawTaxId ? String(rawTaxId).replace(/\D/g, '') : null;
 
-    if (!resolvedPhone || resolvedPhone.length < 10) {
-      setPhoneSyncRequired(true);
-      return;
-    }
+    const hasValidPhone = !!resolvedPhone && resolvedPhone.length >= 10;
+    const hasValidTaxId = !!resolvedTaxId && resolvedTaxId.length === 11;
 
-    if (!resolvedTaxId || resolvedTaxId.length !== 11) {
+    // Garante abertura do modal de cadastro complementar mesmo quando
+    // o backend nao retorna uma mensagem de erro reconhecida.
+    if (!hasValidPhone || !hasValidTaxId) {
       setPhoneSyncRequired(true);
       return;
     }
@@ -227,39 +247,57 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (!token) return;
 
     const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
+    const syncPayload: Record<string, unknown> = {
+      email: clerkUser.primaryEmailAddress?.emailAddress ?? '',
+      name: clerkUser.fullName ?? clerkUser.firstName ?? 'Usuário',
+      avatar_url: clerkUser.imageUrl ?? null,
+    };
+
+    if (hasValidPhone) {
+      syncPayload.phone = resolvedPhone;
+    }
+
+    if (hasValidTaxId && resolvedTaxId) {
+      syncPayload.taxId = resolvedTaxId;
+      syncPayload.document = resolvedTaxId;
+      syncPayload.cpfCnpj = resolvedTaxId;
+    }
+
     const response = await fetch(`${baseUrl}/users/me/sync`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        email: clerkUser.primaryEmailAddress?.emailAddress ?? '',
-        name: clerkUser.fullName ?? clerkUser.firstName ?? 'Usuário',
-        phone: resolvedPhone,
-        taxId: resolvedTaxId,
-        document: resolvedTaxId,
-        cpfCnpj: resolvedTaxId,
-        avatar_url: clerkUser.imageUrl ?? null,
-      }),
+      body: JSON.stringify(syncPayload),
     });
 
     if (!response.ok) {
       const raw = await response.text();
       const message = parseSyncErrorMessage(raw, `Erro ${response.status}: ${response.statusText}`);
+      if (isProfileDataRequiredError(message)) {
+        setPhoneSyncRequired(true);
+        return;
+      }
       throw new Error(message);
     }
 
     // Persiste dados para evitar solicitar CPF/telefone novamente no próximo boot.
     try {
-      await clerkUser.update({
-        unsafeMetadata: {
-          ...(clerkUser.unsafeMetadata as Record<string, unknown>),
-          taxId: resolvedTaxId,
-          cpfCnpj: resolvedTaxId,
-          phone: resolvedPhone,
-        },
-      });
+      const unsafeMetadataUpdate: Record<string, unknown> = {
+        ...(clerkUser.unsafeMetadata as Record<string, unknown>),
+      };
+
+      if (hasValidTaxId && resolvedTaxId) {
+        unsafeMetadataUpdate.taxId = resolvedTaxId;
+        unsafeMetadataUpdate.cpfCnpj = resolvedTaxId;
+      }
+
+      if (hasValidPhone && resolvedPhone) {
+        unsafeMetadataUpdate.phone = resolvedPhone;
+      }
+
+      await clerkUser.update({ unsafeMetadata: unsafeMetadataUpdate });
     } catch {
       // Se não conseguir persistir metadata, não bloqueia fluxo de login.
     }
@@ -479,7 +517,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   // Mapear usuário do Clerk para o formato esperado
-  const metadata = (clerkUser?.publicMetadata ?? {}) as Record<string, unknown>;
+  const metadata = {
+    ...((clerkUser?.publicMetadata ?? {}) as Record<string, unknown>),
+    ...((clerkUser?.unsafeMetadata ?? {}) as Record<string, unknown>),
+  };
   const abacateCustomerId =
     typeof metadata.abacateCustomerId === 'string' ? metadata.abacateCustomerId : null;
 

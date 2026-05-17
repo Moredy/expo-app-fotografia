@@ -219,6 +219,13 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
     return date.toLocaleDateString('pt-BR');
   };
 
+  const hiddenBenefits = new Set([
+    'Prioridade na compra de impressões',
+    'Desconto em produtos personalizados',
+    'Suporte prioritário',
+  ]);
+  const visibleBenefits = clubInfo.beneficios.filter((beneficio) => !hiddenBenefits.has(beneficio));
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <TouchableOpacity
@@ -323,13 +330,14 @@ export default function ClubScreen({ navigation }: ClubScreenProps) {
 
           <View style={styles.benefitsSection}>
             <Text style={styles.benefitsTitle}>Benefícios inclusos:</Text>
-            {clubInfo.beneficios.map((beneficio, index) => (
+            {visibleBenefits.map((beneficio, index) => (
               <View key={index} style={styles.benefitItem}>
                 <Ionicons name="checkmark-circle" size={24} color="#8BC34A" />
                 <Text style={styles.benefitText}>{beneficio}</Text>
               </View>
             ))}
           </View>
+
         </View>
       </ScrollView>
 
