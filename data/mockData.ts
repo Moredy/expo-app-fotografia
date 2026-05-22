@@ -126,7 +126,7 @@ export const fotosFavoritas: any[] = [
 
 export const clubInfo: ClubInfo = {
   titulo: 'VL Club',
-  descricao: 'Faça parte do VL Club e tenha acesso exclusivo à todos os nossos conteúdos!',  
+  descricao: 'Fazendo parte do VL Club, você terá acesso a todas as suas fotos',  
   preco: 296.00,
   mensalidade: 'por mês',
   beneficios: [

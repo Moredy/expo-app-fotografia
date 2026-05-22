@@ -192,7 +192,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           <View style={styles.clubContent}>
             <Text style={styles.clubTitle}>VL Club</Text>
             <Text style={styles.clubDescription}>
-              Faça parte do nosso clube e tenha acesso à todas as nossas fotos!
+              Fazendo parte do VL Club, você terá acesso a todas as suas fotos!
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={24} color="#8E8E93" />
