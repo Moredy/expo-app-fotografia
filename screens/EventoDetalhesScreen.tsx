@@ -24,6 +24,19 @@ import { ApiPhoto } from '../types/payment';
 
 const { width } = Dimensions.get('window');
 const photoSize = Math.floor((width - 54) / 3);
+const MAX_PHOTOS_PER_EVENT = 10;
+const AUTO_UNLOCK_NOTICE =
+  'Ao comprar 10 fotos deste evento, todo o restante e liberado automaticamente.';
+
+const getEventKey = (evento: { id?: string; titulo?: string }): string => {
+  const eventId = typeof evento.id === 'string' ? evento.id.trim() : '';
+  if (eventId.length > 0) {
+    return `id:${eventId}`;
+  }
+
+  const title = typeof evento.titulo === 'string' ? evento.titulo.trim().toLowerCase() : '';
+  return `title:${title}`;
+};
 
 type EventoDetalhesScreenProps = NativeStackScreenProps<RootStackParamList, 'EventoDetalhes'>;
 
@@ -38,7 +51,7 @@ interface FotoLocal {
 export default function EventoDetalhesScreen({ route, navigation }: EventoDetalhesScreenProps) {
   const insets = useSafeAreaInsets();
   const { evento } = route.params;
-  const { addToCart, getCartCount, isInCart } = useCart();
+  const { addToCart, cartItems, getCartCount, isInCart } = useCart();
   const { getToken } = useClerkAuth();
   const [modoSelecao, setModoSelecao] = useState<boolean>(false);
   const [fotos, setFotos] = useState<FotoLocal[]>([]);
@@ -79,19 +92,52 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [evento.id]);
 
+  const photosInCartForEvent = cartItems.filter(
+    (item) => getEventKey(item.evento) === getEventKey(evento),
+  ).length;
+  const remainingEventSlots = Math.max(0, MAX_PHOTOS_PER_EVENT - photosInCartForEvent);
+
   const toggleSelecao = (id: string): void => {
-    setFotos((prevFotos) =>
-      prevFotos.map((foto) =>
-        foto.id === id ? { ...foto, selecionada: !foto.selecionada } : foto
-      )
-    );
+    let reachedLimit = false;
+
+    setFotos((prevFotos) => {
+      const selectedCount = prevFotos.filter((foto) => foto.selecionada).length;
+
+      return prevFotos.map((foto) => {
+        if (foto.id !== id) return foto;
+        if (foto.selecionada) return { ...foto, selecionada: false };
+
+        if (selectedCount >= remainingEventSlots) {
+          reachedLimit = true;
+          return foto;
+        }
+
+        return { ...foto, selecionada: true };
+      });
+    });
+
+    if (reachedLimit) {
+      Alert.alert('Aviso', AUTO_UNLOCK_NOTICE);
+    }
   };
 
   const handleAddToCart = async (): Promise<void> => {
     if (addLockRef.current || addingToCart) return;
+    if (remainingEventSlots === 0) {
+      Alert.alert('Aviso', AUTO_UNLOCK_NOTICE);
+      return;
+    }
     addLockRef.current = true;
 
     const fotosSelecionadas = fotos.filter((f) => f.selecionada);
+    if (fotosSelecionadas.length > remainingEventSlots) {
+      Alert.alert(
+        'Aviso',
+        AUTO_UNLOCK_NOTICE,
+      );
+      addLockRef.current = false;
+      return;
+    }
     let adicionadas = 0;
     let jaNoCarrinho = 0;
     let falhas = 0;
@@ -178,6 +224,10 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
       Alert.alert('Foto indisponivel', 'Essa foto ja foi comprada.');
       return;
     }
+    if (remainingEventSlots === 0) {
+      Alert.alert('Aviso', AUTO_UNLOCK_NOTICE);
+      return;
+    }
 
     setAddingToCart(true);
     addLockRef.current = true;
@@ -259,8 +309,7 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
 
       <View style={styles.unlockNoticeCard}>
         <Text style={styles.unlockNoticeText}>
-          Compre 10 fotos deste concurso e desbloqueie acesso a{' '}
-          <Text style={styles.unlockNoticeTextStrong}>TODAS as fotos</Text> dele.
+          Ao comprar <Text style={styles.unlockNoticeTextStrong}>10 fotos</Text> deste evento, todo o restante e liberado automaticamente.
         </Text>
       </View>
 
@@ -400,16 +449,21 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
                       <Ionicons name="cart" size={18} color="#D4A574" />
                       <Text style={styles.previewStatusText}>Foto ja esta no carrinho</Text>
                     </View>
+                  ) : remainingEventSlots === 0 ? (
+                    <View style={styles.previewStatusRow}>
+                      <Ionicons name="alert-circle" size={18} color="#FF8A65" />
+                      <Text style={styles.previewStatusText}>{AUTO_UNLOCK_NOTICE}</Text>
+                    </View>
                   ) : null}
 
                   <TouchableOpacity
                     style={[
                       styles.previewAddButton,
-                      (fotoPreview.comprada || isInCart(fotoPreview.id) || addingToCart) &&
+                      (fotoPreview.comprada || isInCart(fotoPreview.id) || addingToCart || remainingEventSlots === 0) &&
                         styles.previewAddButtonDisabled,
                     ]}
                     onPress={() => { void handleAddPreviewToCart(); }}
-                    disabled={fotoPreview.comprada || isInCart(fotoPreview.id) || addingToCart}
+                    disabled={fotoPreview.comprada || isInCart(fotoPreview.id) || addingToCart || remainingEventSlots === 0}
                   >
                     <Ionicons name="cart" size={20} color="#000" />
                     <Text style={styles.previewAddText}>

@@ -18,6 +18,7 @@ interface Foto {
 }
 
 interface Evento {
+  id?: string;
   titulo: string;
   [key: string]: any;
 }
@@ -55,6 +56,9 @@ interface CartProviderProps {
 }
 
 export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
+  const MAX_PHOTOS_PER_EVENT = 10;
+  const AUTO_UNLOCK_NOTICE =
+    'Ao comprar 10 fotos deste evento, todo o restante e liberado automaticamente.';
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [totalAmount, setTotalAmount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -62,8 +66,25 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
   const { getToken } = useClerkAuth();
 
   const pendingAddIdsRef = useRef<Set<string>>(new Set());
+  const pendingAddsByEventRef = useRef<Map<string, number>>(new Map());
   const tokenCacheRef = useRef<{ token: string; expiresAt: number } | null>(null);
   const tokenInFlightRef = useRef<Promise<string | null> | null>(null);
+
+  const getEventKey = (evento: Evento): string => {
+    const eventId = typeof evento.id === 'string' ? evento.id.trim() : '';
+    if (eventId.length > 0) {
+      return `id:${eventId}`;
+    }
+
+    const title =
+      typeof evento.titulo === 'string' ? evento.titulo.trim().toLowerCase() : 'evento-desconhecido';
+    return `title:${title}`;
+  };
+
+  const getEventCartCount = (items: CartItem[], evento: Evento): number => {
+    const key = getEventKey(evento);
+    return items.filter((item) => getEventKey(item.evento) === key).length;
+  };
 
   const calculateLocalTotal = (items: CartItem[]): number => {
     return items.reduce((acc, item) => acc + item.unitPrice, 0);
@@ -153,6 +174,7 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
       url: item.photoUrl ? { uri: item.photoUrl } : require('../assets/fotos-mock/1.jpg'),
     },
     evento: {
+      id: item.eventId,
       titulo: item.eventTitle,
     },
     unitPrice: item.unitPrice,
@@ -212,7 +234,15 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
     if (itemExists) return false;
     if (pendingAddIdsRef.current.has(foto.id)) return false;
 
+    const eventKey = getEventKey(evento);
+    const currentEventCount = getEventCartCount(cartItems, evento);
+    const pendingEventCount = pendingAddsByEventRef.current.get(eventKey) ?? 0;
+    if (currentEventCount + pendingEventCount >= MAX_PHOTOS_PER_EVENT) {
+      throw new Error(AUTO_UNLOCK_NOTICE);
+    }
+
     pendingAddIdsRef.current.add(foto.id);
+    pendingAddsByEventRef.current.set(eventKey, pendingEventCount + 1);
 
     try {
       await addCartItem(foto.id, getStableToken);
@@ -266,6 +296,12 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
       throw new Error(getErrorMessage(err, 'Falha ao adicionar item no carrinho.'));
     } finally {
       pendingAddIdsRef.current.delete(foto.id);
+      const nextPendingCount = (pendingAddsByEventRef.current.get(eventKey) ?? 1) - 1;
+      if (nextPendingCount > 0) {
+        pendingAddsByEventRef.current.set(eventKey, nextPendingCount);
+      } else {
+        pendingAddsByEventRef.current.delete(eventKey);
+      }
     }
 
     setCartItems((prevItems) => {

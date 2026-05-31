@@ -35,6 +35,7 @@ export class CartHttpError extends Error {
 export interface BackendCartItem {
   photoId: string;
   photoUrl: string | null;
+  eventId?: string;
   eventTitle: string;
   unitPrice: number;
 }
@@ -243,6 +244,7 @@ function normalizeCartItem(item: RawCartItem): BackendCartItem | null {
   return {
     photoId,
     photoUrl,
+    eventId: item.photo?.event?.id,
     eventTitle,
     unitPrice,
   };
