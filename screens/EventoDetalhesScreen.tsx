@@ -257,6 +257,13 @@ export default function EventoDetalhesScreen({ route, navigation }: EventoDetalh
         </View>
       </ImageBackground>
 
+      <View style={styles.unlockNoticeCard}>
+        <Text style={styles.unlockNoticeText}>
+          Compre 10 fotos deste concurso e desbloqueie acesso a{' '}
+          <Text style={styles.unlockNoticeTextStrong}>TODAS as fotos</Text> dele.
+        </Text>
+      </View>
+
       <View style={styles.photosHeader}>
         <Text style={styles.photosTitle}>Fotos ({fotos.length})</Text>
         {!loading && !error && (
@@ -520,6 +527,24 @@ const styles = StyleSheet.create({
   eventDate: {
     fontSize: 16,
     color: '#D4A574',
+  },
+  unlockNoticeCard: {
+    marginHorizontal: 20,
+    marginTop: 14,
+    marginBottom: 8,
+    backgroundColor: '#D4A574',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  unlockNoticeText: {
+    color: '#fff',
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '500',
+  },
+  unlockNoticeTextStrong: {
+    fontWeight: '800',
   },
   photosHeader: {
     flexDirection: 'row',
