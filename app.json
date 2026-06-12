@@ -2,7 +2,7 @@
   "expo": {
     "name": "Victoria Lima Fotografia",
     "slug": "vitoria-lima-fotografia",
-    "version": "3.0.6",
+    "version": "4.0.0",
     "scheme": "vitoria-lima-fotografia",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -28,7 +28,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "versionCode": 3,
+      "versionCode": 4,
       "package": "com.mored.vitorialimafotografia"
     },
     "androidNavigationBar": {
